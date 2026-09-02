@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
+  import { listen } from '@tauri-apps/api/event';
 
   type Provider = 'openai' | 'qwen';
 
@@ -166,6 +167,114 @@
     }, 400);
     return () => clearTimeout(saveTimer);
   });
+
+  // --- 6.6: панель проверки диктовки (микрофон → ASR, без хоткея и вставки) ---
+  type DictationResult = {
+    seq: number;
+    ok: boolean;
+    text: string | null;
+    error: string | null;
+    latencyMs: number;
+  };
+
+  let micPhase = $state<'idle' | 'recording' | 'processing'>('idle');
+  let micResult = $state('');
+  let micError = $state('');
+  let micElapsed = $state(0);
+  let micSeq = $state(0);
+  let pressStartedAt = 0;
+  let recordStartedAt = 0;
+  let micTick: ReturnType<typeof setInterval> | undefined;
+
+  function micStartTick() {
+    recordStartedAt = Date.now();
+    micElapsed = 0;
+    clearInterval(micTick);
+    micTick = setInterval(() => (micElapsed = (Date.now() - recordStartedAt) / 1000), 100);
+  }
+  function micStopTick() {
+    clearInterval(micTick);
+    micTick = undefined;
+  }
+
+  async function micStart() {
+    micError = '';
+    try {
+      micSeq = await invoke<number>('start_test_dictation');
+      micPhase = 'recording';
+      micStartTick();
+    } catch (e) {
+      micError = String(e);
+      micPhase = 'idle';
+    }
+  }
+
+  async function micStop() {
+    micStopTick();
+    micPhase = 'processing';
+    try {
+      await invoke('stop_test_dictation');
+    } catch (e) {
+      micError = String(e);
+      micPhase = 'idle';
+    }
+  }
+
+  // Схема кнопки: клик = переключатель (старт/стоп), удержание = push-to-talk.
+  // pointerdown: если уже пишем — стоп (выключение тоггла); если idle — старт.
+  // pointerup: если держали >= 400 мс — стоп (push-to-talk); быстрый клик — остаёмся в записи.
+  function onMicDown(e: PointerEvent) {
+    const btn = e.currentTarget as HTMLElement | null;
+    try {
+      btn?.setPointerCapture(e.pointerId);
+    } catch {
+      /* указатель уже неактивен */
+    }
+    if (micPhase === 'processing') return;
+    if (micPhase === 'recording') {
+      pressStartedAt = 0;
+      void micStop();
+      return;
+    }
+    pressStartedAt = Date.now();
+    void micStart();
+  }
+
+  function onMicUp() {
+    if (micPhase === 'recording' && pressStartedAt && Date.now() - pressStartedAt >= 400) {
+      pressStartedAt = 0;
+      void micStop();
+    }
+    pressStartedAt = 0;
+  }
+
+  $effect(() => {
+    const un = listen<DictationResult>('dictation-test-result', (event) => {
+      const p = event.payload;
+      if (p.seq < micSeq) return; // устаревший (тест перезапущен)
+      micStopTick();
+      micPhase = 'idle';
+      if (p.ok) {
+        micResult = p.text ?? '(пусто)';
+        micError = '';
+      } else {
+        micResult = '';
+        micError = p.error ?? 'Неизвестная ошибка';
+      }
+    });
+    return () => {
+      void un.then((f) => f());
+      micStopTick();
+    };
+  });
+
+  const micLabel = $derived(
+    micPhase === 'recording'
+      ? `■ Идёт запись… (${micElapsed.toFixed(1)} с)`
+      : micPhase === 'processing'
+        ? 'Распознаю…'
+        : '🎙 Держите и говорите (или клик — вкл/выкл)',
+  );
 </script>
 
 <main class="container">
@@ -285,6 +394,38 @@
         <label for="delay">Задержка вставки, мс</label>
         <input id="delay" type="number" min="0" step="10" bind:value={settings.insertDelayMs} />
       </div>
+    </div>
+    <div class="field mic-test">
+      <label for="mic-btn">Проверка диктовки</label>
+      <button
+        id="mic-btn"
+        type="button"
+        class="mic"
+        class:recording={micPhase === 'recording'}
+        class:processing={micPhase === 'processing'}
+        disabled={micPhase === 'processing'}
+        aria-pressed={micPhase === 'recording'}
+        onpointerdown={onMicDown}
+        onpointerup={onMicUp}
+        onpointercancel={onMicUp}
+        onlostpointercapture={onMicUp}
+        oncontextmenu={(e) => e.preventDefault()}
+      >
+        {micLabel}
+      </button>
+      {#if micError}
+        <span class="error">{micError}</span>
+      {/if}
+      <textarea
+        id="mic-result"
+        class="mic-result"
+        readonly
+        rows="3"
+        placeholder="Поле результата"
+        bind:value={micResult}></textarea>
+      <span class="hint">
+        Текст в активное приложение не вставляется — результат только здесь.
+      </span>
     </div>
   </form>
 
@@ -413,5 +554,61 @@
     margin-top: 8px;
     font-size: 0.8rem;
     color: #2e7d32;
+  }
+
+  .mic-test {
+    margin-top: 6px;
+  }
+
+  .mic {
+    align-self: stretch;
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 8px 12px;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    background: var(--color-bg-input, #fff);
+    cursor: pointer;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .mic:disabled {
+    cursor: wait;
+    opacity: 0.7;
+  }
+
+  .mic.recording {
+    background: #c0392b;
+    border-color: #922b21;
+    color: #fff;
+    animation: mic-pulse 1s ease-in-out infinite;
+  }
+
+  .mic.processing {
+    border-color: #4a90d9;
+    color: #2c5f8a;
+  }
+
+  @keyframes mic-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.55;
+    }
+  }
+
+  .mic-result {
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 6px 8px;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    background: var(--color-bg-input, #f7f7f7);
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
   }
 </style>

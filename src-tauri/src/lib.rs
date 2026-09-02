@@ -4,6 +4,7 @@ mod error_msg;
 mod hotkey;
 mod recorder;
 mod settings;
+mod test_panel;
 mod tray;
 mod typer;
 
@@ -41,10 +42,13 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .manage(recorder::Recorder::default())
+        .manage(test_panel::TestPanel::default())
         .invoke_handler(tauri::generate_handler![
             settings::get_settings,
             settings::save_settings,
-            asr::test_connection
+            asr::test_connection,
+            test_panel::start_test_dictation,
+            test_panel::stop_test_dictation
         ])
         .setup(|app| {
             log::info!("[setup] VoiceDo starting");
