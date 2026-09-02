@@ -41,7 +41,7 @@ pub fn set_tray_state(app: &AppHandle, state: TrayState) {
         return;
     }
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
-        eprintln!("[tray] indicator: tray `{TRAY_ID}` not found");
+        log::error!("[tray] indicator: tray `{TRAY_ID}` not found");
         return;
     };
     let (title, tooltip) = match state {
@@ -53,10 +53,10 @@ pub fn set_tray_state(app: &AppHandle, state: TrayState) {
         .set_title(Some(title))
         .and_then(|_| tray.set_tooltip(Some(tooltip)))
     {
-        eprintln!("[tray] set_title failed: {e}");
+        log::error!("[tray] set_title failed: {e}");
         return;
     }
-    println!("[tray] state -> {state:?}");
+    log::info!("[tray] state -> {state:?}");
 }
 
 pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {

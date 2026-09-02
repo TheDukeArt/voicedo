@@ -1,4 +1,6 @@
+mod accessibility;
 mod asr;
+mod error_msg;
 mod hotkey;
 mod recorder;
 mod settings;
@@ -6,6 +8,7 @@ mod tray;
 mod typer;
 
 use tauri::{AppHandle, WindowEvent};
+use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
 use tauri_plugin_notification::NotificationExt;
 
 fn notify(app: &AppHandle, message: &str) {
@@ -20,6 +23,19 @@ fn notify(app: &AppHandle, message: &str) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    Target::new(TargetKind::Stdout),
+                    Target::new(TargetKind::LogDir {
+                        file_name: Some("voicedo".into()),
+                    }),
+                ])
+                .rotation_strategy(RotationStrategy::KeepOne)
+                .max_file_size(5_000_000)
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -31,18 +47,25 @@ pub fn run() {
             asr::test_connection
         ])
         .setup(|app| {
+            log::info!("[setup] VoiceDo starting");
             tray::build_tray(app.handle())?;
+            // 6.2: при отсутствии прав Accessibility macOS покажет системный промпт.
+            if accessibility::ensure_prompt() {
+                log::info!("[accessibility] trusted: ввод с клавиатуры разрешён");
+            } else {
+                log::warn!("[accessibility] нет разрешения — показан системный промпт (Специальные возможности)");
+            }
             let s = settings::load_settings(app.handle());
             // Битый hotkey в store не должен ломать запуск: фолбэк на ОС-дефолт.
             let (to_register, warning) =
                 hotkey::startup_hotkey(&s.hotkey, &settings::Settings::default().hotkey);
             if let Some(w) = &warning {
-                eprintln!("[setup] WARNING: {w} (в store: «{}»)", s.hotkey);
+                log::warn!("[setup] {w} (в store: «{}»)", s.hotkey);
                 notify(app.handle(), w);
             }
             if let Some(h) = &to_register {
                 if let Err(e) = hotkey::apply_hotkey(app.handle(), h) {
-                    eprintln!("[setup] {e}");
+                    log::error!("[setup] {e}");
                     notify(app.handle(), &e);
                 }
             }

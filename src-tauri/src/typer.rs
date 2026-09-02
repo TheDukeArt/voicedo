@@ -22,6 +22,14 @@ pub fn insert_text(text: &str, delay_ms: u64) -> Result<(), String> {
         return Ok(());
     }
     thread::sleep(Duration::from_millis(delay_ms));
+    // 6.2: без Accessibility enigo на актуальных macOS может «успешно» ничего не
+    // вставить — проверяем явно, чтобы дать понятную ошибку вместо тишины.
+    if !crate::accessibility::is_trusted() {
+        return Err(
+            "Нет разрешения Accessibility — macOS: Системные настройки → Конфиденциальность и защита → Специальные возможности (добавьте VoiceDo)"
+                .to_string(),
+        );
+    }
     let mut enigo = Enigo::new(&EnigoSettings::default()).map_err(|e| {
         format!("Нет доступа к вводу с клавиатуры (macOS: Конфиденциальность и защита → Специальные возможности): {e}")
     })?;

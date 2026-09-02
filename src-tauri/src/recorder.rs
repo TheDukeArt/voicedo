@@ -94,9 +94,7 @@ impl Recorder {
         };
         let mut guard = self.active.lock().map_err(|_| RecorderError::Build("state poisoned".into()))?;
         *guard = Some(active);
-        log(&format!(
-            "recording started: {channels} ch @ {rate} Hz"
-        ));
+        log::info!("recording started: {channels} ch @ {rate} Hz");
         Ok(())
     }
 
@@ -120,10 +118,6 @@ impl Recorder {
             device_rate: rate,
         })
     }
-}
-
-fn log(msg: &str) {
-    println!("[recorder] {msg}");
 }
 
 /// Best-effort выбор устройства и конфига: сначала пробуем найти 16 кГц на любом
@@ -185,7 +179,7 @@ fn build_input_stream(
     samples: Arc<Mutex<Vec<i16>>>,
     channels: usize,
 ) -> Result<cpal::Stream, RecorderError> {
-    let err_fn = |err: cpal::Error| eprintln!("[recorder] stream error: {err}");
+    let err_fn = |err: cpal::Error| log::error!("[recorder] stream error: {err}");
     let stream_config = config.config();
 
     macro_rules! build {

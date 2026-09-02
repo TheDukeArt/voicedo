@@ -5,7 +5,7 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_notification::NotificationExt;
 
-use crate::{asr, recorder, settings, tray, typer};
+use crate::{asr, error_msg, recorder, settings, tray, typer};
 
 /// Разбор строки хоткея из настроек (вид «Cmd+Shift+Space») в Shortcut.
 pub fn parse_hotkey(value: &str) -> Result<Shortcut, String> {
@@ -74,14 +74,16 @@ pub fn apply_hotkey(app: &AppHandle, value: &str) -> Result<(), String> {
             if let Ok(mut g) = REGISTERED.lock() {
                 *g = Some((wanted, shortcut));
             }
-            println!("[hotkey] hotkey registered: {value}");
+            log::info!("[hotkey] hotkey registered: {value}");
             Ok(())
         }
         Err(e) => {
             if let (Ok(mut g), Some(p)) = (REGISTERED.lock(), prev) {
                 *g = Some(p);
             }
-            Err(format!("Не удалось зарегистрировать хоткей «{value}»: {e}"))
+            Err(format!(
+                "Не удалось зарегистрировать хоткей «{value}» — вероятно, сочетание занято другим приложением: {e}"
+            ))
         }
     }
 }
@@ -90,17 +92,18 @@ fn on_pressed(app: &AppHandle) {
     let recorder_state = app.state::<recorder::Recorder>();
     // Защита от Pressed без предыдущего Released: повторное нажатие игнорируется.
     if recorder_state.is_recording() {
-        println!("[hotkey] pressed while already recording — ignored");
+        log::warn!("[hotkey] pressed while already recording — ignored");
         return;
     }
     match recorder_state.start() {
         Ok(()) => {
             tray::set_tray_state(app, tray::TrayState::Recording);
-            println!("[hotkey] recording started");
+            log::info!("[hotkey] recording started");
         }
         Err(e) => {
-            eprintln!("[hotkey] failed to start recording: {e}");
-            notify(app, &e.to_string());
+            let msg = error_msg::microphone(&e);
+            log::error!("[hotkey] failed to start recording: {e}");
+            notify(app, &msg);
         }
     }
 }
@@ -117,7 +120,7 @@ fn on_released(app: &AppHandle) {
     let recorder_state = app.state::<recorder::Recorder>();
     match recorder_state.stop() {
         Some(recorded) => {
-            println!(
+            log::info!(
                 "[hotkey] recording stopped: {:.2} s, {} raw samples @ {} Hz, WAV {} bytes",
                 recorded.duration.as_secs_f64(),
                 recorded.raw_samples,
@@ -129,7 +132,7 @@ fn on_released(app: &AppHandle) {
         None => {
             // Released без активной записи — на всякий случай гасим индикатор.
             tray::set_tray_state(app, tray::TrayState::Ready);
-            println!("[hotkey] released without active recording — ignored");
+            log::warn!("[hotkey] released without active recording — ignored");
         }
     }
 }
@@ -139,7 +142,7 @@ fn on_released(app: &AppHandle) {
 fn dispatch_to_asr(app: &AppHandle, wav: Vec<u8>) {
     let s = settings::load_settings(app);
     if let Err(reason) = should_transcribe(&s) {
-        eprintln!("[asr] skipped: {reason}");
+        log::warn!("[asr] skipped: {reason}");
         tray::set_tray_state(app, tray::TrayState::Ready);
         notify(app, reason);
         return;
@@ -153,7 +156,7 @@ fn dispatch_to_asr(app: &AppHandle, wav: Vec<u8>) {
             asr::transcribe(provider, &s.endpoint, &s.token, &s.model, &s.language, &wav).await;
         match result {
             Ok(text) => {
-                println!(
+                log::info!(
                     "[asr] recognized ({} ms): «{text}»",
                     started.elapsed().as_millis()
                 );
@@ -168,18 +171,18 @@ fn dispatch_to_asr(app: &AppHandle, wav: Vec<u8>) {
                     .await
                     {
                         Ok(Ok(())) => {
-                            println!("[typer] inserted {chars} chars (delay {delay} ms)")
+                            log::info!("[typer] inserted {chars} chars (delay {delay} ms)")
                         }
                         Ok(Err(e)) => {
-                            eprintln!("[typer] failed: {e}");
+                            log::error!("[typer] failed: {e}");
                             notify(&app_t, &format!("Не удалось вставить текст: {e}"));
                         }
-                        Err(e) => eprintln!("[typer] spawn_blocking failed: {e}"),
+                        Err(e) => log::error!("[typer] spawn_blocking failed: {e}"),
                     }
                 }
             }
             Err(e) => {
-                eprintln!("[asr] error: {e}");
+                log::error!("[asr] error: {e}");
                 let msg = match e {
                     asr::AsrError::NoSpeech => "Речь не распознана — в записи тишина".to_string(),
                     other => format!("Распознавание не удалось: {other}"),

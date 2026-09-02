@@ -29,6 +29,9 @@ cpal = "0.18.2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-notification = "2"
 enigo = "0.6"
+tauri-plugin-log = "2"
+log = "0.4.34"
+core-foundation = "0.10"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
