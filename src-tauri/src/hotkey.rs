@@ -109,7 +109,14 @@ fn on_pressed(app: &AppHandle) {
 }
 
 /// Предпроверка настроек перед отправкой в ASR (чистая функция, для тестов).
+/// Google — бесплатный неофициальный API: эндпоинт и токен не нужны.
 pub fn should_transcribe(s: &settings::Settings) -> Result<(), &'static str> {
+    if matches!(
+        asr::Provider::from_str(&s.provider).unwrap_or_default(),
+        asr::Provider::Google
+    ) {
+        return Ok(());
+    }
     if s.endpoint.trim().is_empty() || s.token.trim().is_empty() {
         return Err("Настройки ASR не заполнены — укажите эндпоинт и токен в окне настроек");
     }
@@ -288,6 +295,15 @@ mod tests {
         assert!(should_transcribe(&settings_with("https://x/v1", "   ")).is_err());
         assert!(should_transcribe(&settings_with("", "")).is_err());
         assert!(should_transcribe(&settings_with("https://x/v1", "tok")).is_ok());
+    }
+
+    #[test]
+    fn should_transcribe_google_needs_no_credentials() {
+        let s = settings::Settings {
+            provider: "google".to_string(),
+            ..settings::Settings::default()
+        };
+        assert!(should_transcribe(&s).is_ok());
     }
 
     #[test]

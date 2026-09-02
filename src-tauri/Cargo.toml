@@ -25,6 +25,8 @@ serde_json = "1"
 tauri-plugin-store = "2"
 reqwest = { version = "0.13", features = ["multipart", "json"] }
 base64 = "0.22"
+# Чистый Rust FLAC-энкодер (crates.io «clac» — калькулятор, не энкодер; «lac» — не FLAC-контейнер)
+flacenc = { version = "0.5.1", default-features = false }
 cpal = "0.18.2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-notification = "2"

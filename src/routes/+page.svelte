@@ -2,7 +2,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
 
-  type Provider = 'openai' | 'qwen';
+  type Provider = 'openai' | 'qwen' | 'google';
 
   type Settings = {
     provider: Provider;
@@ -72,18 +72,28 @@
   function onProviderChange(next: Provider) {
     settings.provider = next;
     const ep = settings.endpoint.trim();
+    const model = settings.model.trim();
     if (next === 'qwen') {
       if (ep === '' || ep === OPENAI_DEFAULT_ENDPOINT) {
         settings.endpoint = QWEN_DEFAULT_ENDPOINT;
       }
-      if (settings.model.trim() === '' || settings.model === OPENAI_DEFAULT_MODEL) {
+      if (model === '' || model === OPENAI_DEFAULT_MODEL) {
         settings.model = QWEN_DEFAULT_MODEL;
+      }
+    } else if (next === 'google') {
+      // Google: эндпоинт/токен/модель не используются — очищаем только
+      // значения-дефолты других провайдеров, свои данные пользователя не трогаем.
+      if (ep === '' || ep === OPENAI_DEFAULT_ENDPOINT || ep === QWEN_DEFAULT_ENDPOINT) {
+        settings.endpoint = '';
+      }
+      if (model === '' || model === OPENAI_DEFAULT_MODEL || model === QWEN_DEFAULT_MODEL) {
+        settings.model = '';
       }
     } else {
       if (ep === QWEN_DEFAULT_ENDPOINT) {
         settings.endpoint = '';
       }
-      if (settings.model === QWEN_DEFAULT_MODEL) {
+      if (model === '' || model === QWEN_DEFAULT_MODEL) {
         settings.model = OPENAI_DEFAULT_MODEL;
       }
     }
@@ -303,13 +313,16 @@
         >
           <option value="openai">OpenAI-совместимый</option>
           <option value="qwen">Qwen (DashScope)</option>
+          <option value="google">Google (бесплатный, неофициальный)</option>
         </select>
       </div>
       <div class="field lang">
         <label for="language">Язык</label>
         <select id="language" bind:value={settings.language} title={settings.provider === 'qwen'
           ? 'Qwen (DashScope): язык пока не передаётся — выбор игнорируется'
-          : ''}>
+          : settings.provider === 'google' && settings.language === ''
+            ? 'Google: при «автоопределении» реально уйдёт en-US'
+            : ''}>
           {#each LANGUAGES as [code, name]}
             <option value={code}>{name}</option>
           {/each}
@@ -317,15 +330,24 @@
       </div>
     </div>
 
+    {#if settings.provider === 'google'}
+      <p class="hint google-hint">
+        Google: до ~15 с за запись, без ключа; может перестать работать в любой момент.
+        {#if settings.language === ''}Язык «авто» — реально уйдёт en-US.{/if}
+      </p>
+    {/if}
+
     <div class="field">
       <label for="endpoint">Эндпоинт</label>
       <input
         id="endpoint"
         type="text"
         bind:value={settings.endpoint}
-        placeholder={settings.provider === 'qwen'
-          ? QWEN_DEFAULT_ENDPOINT
-          : 'https://api.openai.com/v1'}
+        placeholder={settings.provider === 'google'
+          ? 'не требуется'
+          : settings.provider === 'qwen'
+            ? QWEN_DEFAULT_ENDPOINT
+            : 'https://api.openai.com/v1'}
       />
       {#if endpointError}
         <span class="error">{endpointError}</span>
@@ -339,7 +361,7 @@
           id="token"
           type={showToken ? 'text' : 'password'}
           bind:value={settings.token}
-          placeholder="sk-..."
+          placeholder={settings.provider === 'google' ? 'не требуется (без ключа)' : 'sk-...'}
         />
         <button
           type="button"
@@ -360,7 +382,11 @@
             id="model"
             type="text"
             bind:value={settings.model}
-            placeholder={settings.provider === 'qwen' ? QWEN_DEFAULT_MODEL : 'whisper-1'}
+            placeholder={settings.provider === 'google'
+              ? 'не требуется'
+              : settings.provider === 'qwen'
+                ? QWEN_DEFAULT_MODEL
+                : 'whisper-1'}
           />
         </div>
         <button type="button" class="check" onclick={testConnection} disabled={checking}>
@@ -573,6 +599,11 @@
   .hint {
     font-size: 0.68rem;
     color: var(--color-muted, #666);
+  }
+
+  .google-hint {
+    margin: -2px 0 0;
+    color: #8a6d1a;
   }
 
   .check {
