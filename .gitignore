@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# Node / фронтенд
+node_modules/
+dist/
+
+# Rust / Tauri
+src-tauri/target/
+target/
+
+# Логи и временные файлы
+*.log
+*.tmp
