@@ -4,6 +4,10 @@
 # Node / фронтенд
 node_modules/
 dist/
+/build
+/.svelte-kit
+/package
+vite.config.js.timestamp-*
 
 # Rust / Tauri
 src-tauri/target/

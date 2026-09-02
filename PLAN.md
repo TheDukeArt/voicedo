@@ -36,9 +36,9 @@ OCP_voicedo/
 │   │   ├── tray.rs          # трей-меню + иконка состояния
 │   │   ├── hotkey.rs        # global-shortcut: Pressed → старт, Released → стоп
 │   │   ├── recorder.rs      # cpal: захват микрофона → WAV-буфер в памяти
-│   │   ├── asr.rs           # reqwest: POST multipart на /audio/transcriptions
+│   │   ├── asr.rs           # reqwest: два провайдера — OpenAI-совместимый (multipart /audio/transcriptions) и Qwen/DashScope (native multimodal-generation)
 │   │   ├── typer.rs         # enigo: вставка текста в активное окно
-│   │   └── settings.rs      # tauri-plugin-store: endpoint/token/model/lang/hotkey
+│   │   └── settings.rs      # tauri-plugin-store: provider/endpoint/token/model/lang/hotkey
 │   └── tauri.conf.json
 ├── src/                     # Svelte UI (окно настроек)
 │   ├── App.svelte           # форма настроек + тест подключения
@@ -79,9 +79,28 @@ language = {из настроек или авто}
 
 Ответ: `{ "text": "..." }` → вставка `text` через `enigo`.
 
+### Формат запроса к ASR (Qwen/DashScope, native)
+
+```
+POST {endpoint}   # используется как есть, без склейки путей
+Authorization: Bearer {token}
+Content-Type: application/json
+X-DashScope-SSE: disable
+
+{"model":"qwen-audio-3.0-asr-flash",
+ "input":{"messages":[{"role":"user","content":[
+   {"type":"input_audio","input_audio":{"data":"data:audio/wav;base64,..."}}]}]},
+ "parameters":{"format":"wav","sample_rate":"16000"}}
+```
+
+Ответ: `output.output.text` (фолбэки `output.text`, `output.output.sentence.text`).
+Язык пока не передаётся (TODO). Ошибка `ASR_RESPONSE_HAVE_NO_WORDS` трактуется как
+«сервер доступен, речи нет» (успех для теста тишиной).
+
 ### UI окна настроек (Svelte)
 
 Поля:
+- **Провайдер** — «OpenAI-совместимый» / «Qwen (DashScope)»; при смене подставляются дефолтные эндпоинт/модель
 - **Эндпоинт** — базовый URL API (валидация формата)
 - **Токен** — поле с маскировкой (показ/скрытие)
 - **Модель** — текст, по умолчанию `whisper-1`
@@ -128,5 +147,5 @@ language = {из настроек или авто}
 
 - Сборка и подпись в CI (GitHub Actions), автообновление
 - Потоковое (стриминговое) распознавание — текущая схема «записал → отправил»
-- Альтернативные провайдеры (например, DashScope/Qwen paraformer) — интерфейс настроек совместим, добавится позже
+- ~~Альтернативные провайдеры (например, DashScope/Qwen paraformer)~~ — Qwen/DashScope (multimodal-generation) реализован в этапе 2.6; прочие (paraformer и др.) — по мере необходимости
 - История диктовки, буфер вставок
