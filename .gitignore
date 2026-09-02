@@ -16,3 +16,7 @@ target/
 # Логи и временные файлы
 *.log
 *.tmp
+.env
+
+# Рабочая пада скиллов qwencloud-*
+output/

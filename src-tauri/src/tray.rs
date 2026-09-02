@@ -1,4 +1,5 @@
 use tauri::{
+    image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager,
@@ -70,13 +71,19 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     #[cfg(not(debug_assertions))]
     let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
-    let icon = app
-        .default_window_icon()
-        .cloned()
-        .ok_or_else(|| std::io::Error::other("no default window icon"))?;
+    // Фирменный глиф-волна: на macOS — template (чёрный+альфа), система сама
+    // инвертирует его для тёмной темы меню-бара. На Windows template не
+    // поддерживается — берём белую версию (видна и на светлом, и на тёмном трее).
+    let icon = if cfg!(windows) {
+        Image::from_bytes(include_bytes!("../../assets/tray/voicedo_tray_white_44.png"))
+    } else {
+        Image::from_bytes(include_bytes!("../../assets/tray/voicedo_tray_44.png"))
+    }
+    .map_err(|e| std::io::Error::other(format!("tray icon: {e}")))?;
 
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
+        .icon_as_template(!cfg!(windows))
         .menu(&menu)
         .show_menu_on_left_click(false)
         .tooltip("VoiceDo")
