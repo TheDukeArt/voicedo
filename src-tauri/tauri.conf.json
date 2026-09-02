@@ -14,9 +14,9 @@
       {
         "label": "main",
         "title": "VoiceDo — Настройки",
-        "width": 520,
-        "height": 600,
-        "resizable": false,
+        "width": 560,
+        "height": 780,
+        "resizable": true,
         "center": true
       }
     ],

@@ -278,7 +278,7 @@
 </script>
 
 <main class="container">
-  <h1>Настройки VoiceDo</h1>
+  <h1>Настройки VoiceDo <span class="saved" class:visible={saved}>Сохранено</span></h1>
 
   {#if loadingError}
     <p class="error">Не удалось загрузить настройки: {loadingError}</p>
@@ -288,16 +288,30 @@
   {/if}
 
   <form autocomplete="off" onsubmit={(e) => e.preventDefault()}>
-    <div class="field">
-      <label for="provider">Провайдер</label>
-      <select
-        id="provider"
-        value={settings.provider}
-        onchange={(e) => onProviderChange((e.target as HTMLSelectElement).value as Provider)}
-      >
-        <option value="openai">OpenAI-совместимый</option>
-        <option value="qwen">Qwen (DashScope)</option>
-      </select>
+    <div class="section">Подключение</div>
+
+    <div class="row">
+      <div class="field grow">
+        <label for="provider">Провайдер</label>
+        <select
+          id="provider"
+          value={settings.provider}
+          onchange={(e) => onProviderChange((e.target as HTMLSelectElement).value as Provider)}
+        >
+          <option value="openai">OpenAI-совместимый</option>
+          <option value="qwen">Qwen (DashScope)</option>
+        </select>
+      </div>
+      <div class="field lang">
+        <label for="language">Язык</label>
+        <select id="language" bind:value={settings.language} title={settings.provider === 'qwen'
+          ? 'Qwen (DashScope): язык пока не передаётся — выбор игнорируется'
+          : ''}>
+          {#each LANGUAGES as [code, name]}
+            <option value={code}>{name}</option>
+          {/each}
+        </select>
+      </div>
     </div>
 
     <div class="field">
@@ -336,49 +350,37 @@
     </div>
 
     <div class="field">
-      <button type="button" class="check" onclick={testConnection} disabled={checking}>
-        {checking ? 'Проверка…' : 'Проверить подключение'}
-      </button>
+      <div class="row">
+        <div class="field grow">
+          <label for="model">Модель</label>
+          <input
+            id="model"
+            type="text"
+            bind:value={settings.model}
+            placeholder={settings.provider === 'qwen' ? QWEN_DEFAULT_MODEL : 'whisper-1'}
+          />
+        </div>
+        <button type="button" class="check" onclick={testConnection} disabled={checking}>
+          {checking ? 'Проверка…' : 'Проверить'}
+        </button>
+      </div>
       {#if checkResult}
-        {#if checkResult.ok}
-          <span class="check-ok">
-            ✓ Успех: {checkResult.latencyMs} мс,
-            {#if checkResult.text?.startsWith('(')}
-              {checkResult.text}
-            {:else}
-              распознано: {checkResult.text ? `«${checkResult.text}»` : '(пусто)'}
-            {/if}
-          </span>
-        {:else}
-          <span class="check-err">✗ {checkResult.error}</span>
-        {/if}
+        <span
+          class="check-line {checkResult.ok ? 'check-ok' : 'check-err'}"
+          title={checkResult.ok
+            ? `Успех: ${checkResult.latencyMs} мс${checkResult.text ? `, «${checkResult.text}»` : ''}`
+            : checkResult.error ?? ''}
+        >
+          {#if checkResult.ok}
+            ✓ {checkResult.latencyMs} мс{#if checkResult.text}, {checkResult.text}{/if}
+          {:else}
+            ✗ {checkResult.error}
+          {/if}
+        </span>
       {/if}
     </div>
 
-    <div class="row">
-      <div class="field grow">
-        <label for="model">Модель</label>
-        <input
-          id="model"
-          type="text"
-          bind:value={settings.model}
-          placeholder={settings.provider === 'qwen' ? QWEN_DEFAULT_MODEL : 'whisper-1'}
-        />
-      </div>
-      <div class="field grow">
-        <label for="language">Язык</label>
-        <select id="language" bind:value={settings.language}>
-          {#each LANGUAGES as [code, name]}
-            <option value={code}>{name}</option>
-          {/each}
-        </select>
-        {#if settings.provider === 'qwen'}
-          <span class="hint">
-            Qwen (DashScope): язык пока не передаётся — выбор игнорируется для этого провайдера
-          </span>
-        {/if}
-      </div>
-    </div>
+    <div class="section">Ввод</div>
 
     <div class="row">
       <div class="field grow">
@@ -386,102 +388,129 @@
         <input id="hotkey" type="text" bind:value={settings.hotkey} placeholder="Cmd+Shift+Space" />
         {#if hotkeyError}
           <span class="error">{hotkeyError}</span>
-        {:else}
-          <span class="hint">Модификаторы через «+», последняя клавиша — обычная, напр. Cmd+Shift+Space</span>
         {/if}
       </div>
       <div class="field delay">
-        <label for="delay">Задержка вставки, мс</label>
+        <label for="delay">Задержка, мс</label>
         <input id="delay" type="number" min="0" step="10" bind:value={settings.insertDelayMs} />
       </div>
     </div>
-    <div class="field mic-test">
-      <label for="mic-btn">Проверка диктовки</label>
-      <button
-        id="mic-btn"
-        type="button"
-        class="mic"
-        class:recording={micPhase === 'recording'}
-        class:processing={micPhase === 'processing'}
-        disabled={micPhase === 'processing'}
-        aria-pressed={micPhase === 'recording'}
-        onpointerdown={onMicDown}
-        onpointerup={onMicUp}
-        onpointercancel={onMicUp}
-        onlostpointercapture={onMicUp}
-        oncontextmenu={(e) => e.preventDefault()}
-      >
-        {micLabel}
-      </button>
+
+    <div class="section">Проверка диктовки</div>
+
+    <div class="field">
+      <div class="mic-row">
+        <button
+          id="mic-btn"
+          type="button"
+          class="mic"
+          class:recording={micPhase === 'recording'}
+          class:processing={micPhase === 'processing'}
+          disabled={micPhase === 'processing'}
+          aria-pressed={micPhase === 'recording'}
+          onpointerdown={onMicDown}
+          onpointerup={onMicUp}
+          onpointercancel={onMicUp}
+          onlostpointercapture={onMicUp}
+          oncontextmenu={(e) => e.preventDefault()}
+        >
+          {micLabel}
+        </button>
+        <textarea
+          id="mic-result"
+          class="mic-result"
+          readonly
+          rows="2"
+          placeholder="Поле результата"
+          title={micResult}
+          bind:value={micResult}></textarea>
+      </div>
       {#if micError}
         <span class="error">{micError}</span>
+      {:else}
+        <span class="hint">Клик — вкл/выкл, удержание — пока держите. Вставка не выполняется.</span>
       {/if}
-      <textarea
-        id="mic-result"
-        class="mic-result"
-        readonly
-        rows="3"
-        placeholder="Поле результата"
-        bind:value={micResult}></textarea>
-      <span class="hint">
-        Текст в активное приложение не вставляется — результат только здесь.
-      </span>
     </div>
   </form>
-
-  <div class="status" aria-live="polite">
-    {#if saved}Сохранено{/if}
-  </div>
 </main>
 
 <style>
   .container {
-    padding: 16px 20px;
+    padding: 10px 14px;
   }
 
   h1 {
-    font-size: 1.1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 1rem;
     font-weight: 600;
-    margin: 0 0 12px;
+    margin: 0 0 8px;
+  }
+
+  .saved {
+    font-size: 0.72rem;
+    font-weight: 400;
+    color: #2e7d32;
+    visibility: hidden;
+  }
+
+  .saved.visible {
+    visibility: visible;
   }
 
   form {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 7px;
+  }
+
+  .section {
+    font-size: 0.66rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-muted, #888);
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 2px;
+    margin-top: 3px;
   }
 
   .row {
     display: flex;
-    gap: 10px;
+    gap: 8px;
+    align-items: flex-end;
   }
 
   .field {
     display: flex;
     flex-direction: column;
-    gap: 3px;
-    margin-bottom: 0;
+    gap: 2px;
+    min-width: 0;
   }
 
   .grow {
     flex: 1;
-    min-width: 0;
   }
 
   .delay {
-    width: 130px;
+    width: 105px;
+  }
+
+  .lang {
+    width: 170px;
   }
 
   label {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     color: var(--color-muted, #666);
   }
 
   input,
   select {
     font: inherit;
-    font-size: 0.85rem;
-    padding: 6px 8px;
+    font-size: 0.82rem;
+    padding: 5px 7px;
     border: 1px solid #bbb;
     border-radius: 6px;
     background: var(--color-bg-input, #fff);
@@ -505,8 +534,8 @@
   }
 
   .eye {
-    font-size: 0.9rem;
-    padding: 0 8px;
+    font-size: 0.85rem;
+    padding: 0 7px;
     border: 1px solid #bbb;
     border-radius: 6px;
     background: transparent;
@@ -514,24 +543,25 @@
   }
 
   .error {
-    font-size: 0.72rem;
+    font-size: 0.68rem;
     color: #c0392b;
   }
 
   .hint {
-    font-size: 0.72rem;
+    font-size: 0.68rem;
     color: var(--color-muted, #666);
   }
 
   .check {
-    align-self: flex-start;
+    flex-shrink: 0;
     font: inherit;
-    font-size: 0.85rem;
-    padding: 6px 12px;
+    font-size: 0.8rem;
+    padding: 5px 10px;
     border: 1px solid #bbb;
     border-radius: 6px;
     background: var(--color-bg-input, #fff);
     cursor: pointer;
+    white-space: nowrap;
   }
 
   .check:disabled {
@@ -539,32 +569,33 @@
     opacity: 0.6;
   }
 
+  .check-line {
+    display: block;
+    font-size: 0.72rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .check-ok {
-    font-size: 0.78rem;
     color: #2e7d32;
   }
 
   .check-err {
-    font-size: 0.78rem;
     color: #c0392b;
   }
 
-  .status {
-    height: 1.2em;
-    margin-top: 8px;
-    font-size: 0.8rem;
-    color: #2e7d32;
-  }
-
-  .mic-test {
-    margin-top: 6px;
+  .mic-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
   }
 
   .mic {
-    align-self: stretch;
+    flex: 0 0 168px;
     font: inherit;
-    font-size: 0.85rem;
-    padding: 8px 12px;
+    font-size: 0.78rem;
+    padding: 6px 8px;
     border: 1px solid #bbb;
     border-radius: 6px;
     background: var(--color-bg-input, #fff);
@@ -601,13 +632,14 @@
   }
 
   .mic-result {
+    flex: 1;
+    min-width: 0;
     font: inherit;
-    font-size: 0.85rem;
-    padding: 6px 8px;
+    font-size: 0.8rem;
+    padding: 5px 7px;
     border: 1px solid #bbb;
     border-radius: 6px;
     background: var(--color-bg-input, #f7f7f7);
-    width: 100%;
     box-sizing: border-box;
     resize: vertical;
   }
