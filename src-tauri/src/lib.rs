@@ -41,6 +41,10 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .manage(recorder::Recorder::default())
         .manage(test_panel::TestPanel::default())
         .invoke_handler(tauri::generate_handler![
@@ -60,6 +64,8 @@ pub fn run() {
                 log::warn!("[accessibility] нет разрешения — показан системный промпт (Специальные возможности)");
             }
             let s = settings::load_settings(app.handle());
+            // Синхронно с сохранённой настройкой (false по умолчанию для старых store).
+            let _ = settings::sync_autostart(app.handle(), s.autostart);
             // Битый hotkey в store не должен ломать запуск: фолбэк на ОС-дефолт.
             let (to_register, warning) =
                 hotkey::startup_hotkey(&s.hotkey, &settings::Settings::default().hotkey);

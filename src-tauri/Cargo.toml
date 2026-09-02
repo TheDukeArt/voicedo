@@ -32,6 +32,7 @@ enigo = "0.6"
 tauri-plugin-log = "2"
 log = "0.4.34"
 core-foundation = "0.10"
+tauri-plugin-autostart = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

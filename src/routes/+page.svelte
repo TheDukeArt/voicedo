@@ -12,6 +12,7 @@
     language: string;
     hotkey: string;
     insertDelayMs: number;
+    autostart: boolean;
   };
 
   const QWEN_DEFAULT_ENDPOINT =
@@ -44,6 +45,7 @@
     language: '',
     hotkey: 'Cmd+Shift+Space',
     insertDelayMs: 50,
+    autostart: false,
   });
   let loaded = $state(false);
   let loadingError = $state('');
@@ -151,6 +153,7 @@
       settings.language,
       settings.hotkey,
       settings.insertDelayMs,
+      settings.autostart,
     ];
     if (endpointError || hotkeyError) return;
     const snapshot: Settings = { ...settings };
@@ -396,6 +399,11 @@
       </div>
     </div>
 
+    <label class="switch">
+      <input type="checkbox" id="autostart" bind:checked={settings.autostart} />
+      Запускать при входе в систему
+    </label>
+
     <div class="section">Проверка диктовки</div>
 
     <div class="field">
@@ -495,6 +503,21 @@
 
   .delay {
     width: 105px;
+  }
+
+  .switch {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: var(--color-fg, #333);
+    cursor: pointer;
+    margin-top: -2px;
+  }
+
+  .switch input {
+    width: auto;
+    margin: 0;
   }
 
   .lang {

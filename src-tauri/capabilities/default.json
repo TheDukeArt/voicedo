@@ -15,6 +15,7 @@
     "core:window:allow-set-size",
     "core:app:allow-version",
     "store:default",
-    "log:default"
+    "log:default",
+    "autostart:default"
   ]
 }
