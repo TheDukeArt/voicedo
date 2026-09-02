@@ -1,8 +1,12 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
-  import { listen } from '@tauri-apps/api/event';
+  import HotkeyInput from '$lib/components/HotkeyInput.svelte';
+  import MicTest from '$lib/components/MicTest.svelte';
+  import { validateHotkey } from '$lib/hotkey';
 
   type Provider = 'openai' | 'qwen' | 'google';
+  type Theme = 'system' | 'light' | 'dark';
+  type Section = 'connect' | 'input' | 'autostart' | 'check';
 
   type Settings = {
     provider: Provider;
@@ -13,6 +17,7 @@
     hotkey: string;
     insertDelayMs: number;
     autostart: boolean;
+    theme: Theme;
   };
 
   const QWEN_DEFAULT_ENDPOINT =
@@ -37,6 +42,13 @@
     ['ja', '日本語'],
   ];
 
+  const SECTIONS: [Section, string, string][] = [
+    ['connect', '🔌', 'Подключение'],
+    ['input', '⌨️', 'Ввод'],
+    ['autostart', '🚀', 'Автозапуск'],
+    ['check', '🎙', 'Проверка'],
+  ];
+
   let settings = $state<Settings>({
     provider: 'openai',
     endpoint: '',
@@ -46,6 +58,7 @@
     hotkey: 'Cmd+Shift+Space',
     insertDelayMs: 50,
     autostart: false,
+    theme: 'system',
   });
   let loaded = $state(false);
   let loadingError = $state('');
@@ -53,7 +66,9 @@
   let showToken = $state(false);
   let saved = $state(false);
   let checking = $state(false);
-  let checkResult = $state<{ ok: boolean; text: string | null; latencyMs: number; error: string | null } | null>(null);
+  let checkResult = $state<TestResult | null>(null);
+  let active = $state<Section>('connect');
+  let advOpen = $state(false);
 
   type TestResult = { ok: boolean; text: string | null; latencyMs: number; error: string | null };
 
@@ -119,31 +134,33 @@
     return '';
   }
 
-  // Модификаторы, которые понимает парсер global-hotkey на бэкенде
-  const HK_MODIFIERS = new Set([
-    'ALT', 'OPTION', 'CTRL', 'CONTROL', 'CMD', 'COMMAND', 'SUPER', 'SHIFT',
-    'COMMANDORCONTROL', 'COMMANDORCTRL', 'CMDORCTRL', 'CMDORCONTROL',
-  ]);
-
-  function validateHotkey(value: string): string {
-    const v = value.trim();
-    if (!v) return 'Укажите сочетание, например Cmd+Shift+Space';
-    const tokens = v.split('+').map((t) => t.trim());
-    if (tokens.some((t) => !t)) return 'Лишний «+» или пустая часть — формат: Cmd+Shift+Space';
-    const up = tokens.map((t) => t.toUpperCase());
-    const mods = up.filter((t) => HK_MODIFIERS.has(t));
-    const keys = up.filter((t) => !HK_MODIFIERS.has(t));
-    if (mods.length === 0) return 'Добавьте модификаторы, например Cmd+Shift+Space';
-    if (keys.length === 0) return 'Добавьте обычную клавишу, например Space или F12';
-    if (keys.length > 1) return 'Только одна обычная клавиша, модификаторы — перед ней';
-    if (up[up.length - 1] !== keys[0]) return 'Модификаторы должны идти перед клавишей: Cmd+Shift+Space';
-    return '';
-  }
+  // «Дополнительно» само раскрывается, если значения не совпадают с пресетом
+  // провайдера или эндпоинт невалиден (закрыть вручную при этом можно).
+  let advAutoOpen = $derived(
+    !loaded ||
+      endpointError !== '' ||
+      settings.token.trim() !== '' ||
+      (settings.provider === 'openai' &&
+        !(
+          ['', OPENAI_DEFAULT_ENDPOINT].includes(settings.endpoint.trim()) &&
+          ['', OPENAI_DEFAULT_MODEL].includes(settings.model.trim())
+        )) ||
+      (settings.provider === 'qwen' &&
+        !(
+          ['', QWEN_DEFAULT_ENDPOINT].includes(settings.endpoint.trim()) &&
+          ['', QWEN_DEFAULT_MODEL].includes(settings.model.trim())
+        )) ||
+      (settings.provider === 'google' &&
+        !(settings.endpoint.trim() === '' && settings.model.trim() === '')),
+  );
+  $effect(() => {
+    if (advAutoOpen) advOpen = true;
+  });
 
   $effect(() => {
     invoke<Settings>('get_settings')
       .then((s) => {
-        settings = s;
+        settings = { ...s, theme: s.theme ?? 'system' };
         loaded = true;
       })
       .catch((e) => {
@@ -164,6 +181,7 @@
       settings.hotkey,
       settings.insertDelayMs,
       settings.autostart,
+      settings.theme,
     ];
     if (endpointError || hotkeyError) return;
     const snapshot: Settings = { ...settings };
@@ -181,333 +199,381 @@
     return () => clearTimeout(saveTimer);
   });
 
-  // --- 6.6: панель проверки диктовки (микрофон → ASR, без хоткея и вставки) ---
-  type DictationResult = {
-    seq: number;
-    ok: boolean;
-    text: string | null;
-    error: string | null;
-    latencyMs: number;
-  };
-
-  let micPhase = $state<'idle' | 'recording' | 'processing'>('idle');
-  let micResult = $state('');
-  let micError = $state('');
-  let micElapsed = $state(0);
-  let micSeq = $state(0);
-  let pressStartedAt = 0;
-  let recordStartedAt = 0;
-  let micTick: ReturnType<typeof setInterval> | undefined;
-
-  function micStartTick() {
-    recordStartedAt = Date.now();
-    micElapsed = 0;
-    clearInterval(micTick);
-    micTick = setInterval(() => (micElapsed = (Date.now() - recordStartedAt) / 1000), 100);
-  }
-  function micStopTick() {
-    clearInterval(micTick);
-    micTick = undefined;
-  }
-
-  async function micStart() {
-    micError = '';
-    try {
-      micSeq = await invoke<number>('start_test_dictation');
-      micPhase = 'recording';
-      micStartTick();
-    } catch (e) {
-      micError = String(e);
-      micPhase = 'idle';
-    }
-  }
-
-  async function micStop() {
-    micStopTick();
-    micPhase = 'processing';
-    try {
-      await invoke('stop_test_dictation');
-    } catch (e) {
-      micError = String(e);
-      micPhase = 'idle';
-    }
-  }
-
-  // Схема кнопки: клик = переключатель (старт/стоп), удержание = push-to-talk.
-  // pointerdown: если уже пишем — стоп (выключение тоггла); если idle — старт.
-  // pointerup: если держали >= 400 мс — стоп (push-to-talk); быстрый клик — остаёмся в записи.
-  function onMicDown(e: PointerEvent) {
-    const btn = e.currentTarget as HTMLElement | null;
-    try {
-      btn?.setPointerCapture(e.pointerId);
-    } catch {
-      /* указатель уже неактивен */
-    }
-    if (micPhase === 'processing') return;
-    if (micPhase === 'recording') {
-      pressStartedAt = 0;
-      void micStop();
-      return;
-    }
-    pressStartedAt = Date.now();
-    void micStart();
-  }
-
-  function onMicUp() {
-    if (micPhase === 'recording' && pressStartedAt && Date.now() - pressStartedAt >= 400) {
-      pressStartedAt = 0;
-      void micStop();
-    }
-    pressStartedAt = 0;
-  }
-
+  // Применение темы: system — снимаем data-theme, дальше работает prefers-color-scheme
   $effect(() => {
-    const un = listen<DictationResult>('dictation-test-result', (event) => {
-      const p = event.payload;
-      if (p.seq < micSeq) return; // устаревший (тест перезапущен)
-      micStopTick();
-      micPhase = 'idle';
-      if (p.ok) {
-        micResult = p.text ?? '(пусто)';
-        micError = '';
-      } else {
-        micResult = '';
-        micError = p.error ?? 'Неизвестная ошибка';
-      }
-    });
-    return () => {
-      void un.then((f) => f());
-      micStopTick();
-    };
+    const t = settings.theme;
+    if (t === 'system') delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = t;
   });
 
-  const micLabel = $derived(
-    micPhase === 'recording'
-      ? `■ Идёт запись… (${micElapsed.toFixed(1)} с)`
-      : micPhase === 'processing'
-        ? 'Распознаю…'
-        : '🎙 Держите и говорите (или клик — вкл/выкл)',
+  const providerHint = $derived(
+    settings.provider === 'qwen'
+      ? 'Qwen (DashScope): язык пока не передаётся — выбор игнорируется'
+      : settings.provider === 'google' && settings.language === ''
+        ? 'Google: при «автоопределении» реально уйдёт en-US'
+        : '',
   );
 </script>
 
-<main class="container">
-  <h1>Настройки VoiceDo <span class="saved" class:visible={saved}>Сохранено</span></h1>
-
-  {#if loadingError}
-    <p class="error">Не удалось загрузить настройки: {loadingError}</p>
-  {/if}
-  {#if saveError}
-    <p class="error">Не удалось сохранить настройки: {saveError}</p>
-  {/if}
-
-  <form autocomplete="off" onsubmit={(e) => e.preventDefault()}>
-    <div class="section">Подключение</div>
-
-    <div class="row">
-      <div class="field grow">
-        <label for="provider">Провайдер</label>
-        <select
-          id="provider"
-          value={settings.provider}
-          onchange={(e) => onProviderChange((e.target as HTMLSelectElement).value as Provider)}
-        >
-          <option value="openai">OpenAI-совместимый</option>
-          <option value="qwen">Qwen (DashScope)</option>
-          <option value="google">Google (бесплатный, неофициальный)</option>
-        </select>
-      </div>
-      <div class="field lang">
-        <label for="language">Язык</label>
-        <select id="language" bind:value={settings.language} title={settings.provider === 'qwen'
-          ? 'Qwen (DashScope): язык пока не передаётся — выбор игнорируется'
-          : settings.provider === 'google' && settings.language === ''
-            ? 'Google: при «автоопределении» реально уйдёт en-US'
-            : ''}>
-          {#each LANGUAGES as [code, name]}
-            <option value={code}>{name}</option>
-          {/each}
-        </select>
-      </div>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+        <rect x="2" y="10" width="2.6" height="4" rx="1.3" fill="url(#g)" />
+        <rect x="7" y="6" width="2.6" height="12" rx="1.3" fill="url(#g)" />
+        <rect x="12" y="2.5" width="2.6" height="19" rx="1.3" fill="url(#g)" />
+        <rect x="17" y="7.5" width="2.6" height="9" rx="1.3" fill="url(#g)" />
+        <rect x="21.4" y="10.5" width="2.2" height="3" rx="1.1" fill="url(#g)" />
+        <defs>
+          <linearGradient id="g" x1="0" y1="0" x2="24" y2="24">
+            <stop offset="0" stop-color="#4f6ef7" />
+            <stop offset="1" stop-color="#28c8e6" />
+          </linearGradient>
+        </defs>
+      </svg>
+      <span class="brand-name">VoiceDo</span>
     </div>
 
-    {#if settings.provider === 'google'}
-      <p class="hint google-hint">
-        Google: до ~15 с за запись, без ключа; может перестать работать в любой момент.
-        {#if settings.language === ''}Язык «авто» — реально уйдёт en-US.{/if}
-      </p>
+    <nav>
+      {#each SECTIONS as [id, icon, name] (id)}
+        <button class="nav-item" class:active={active === id} onclick={() => (active = id)}>
+          <span class="nav-icon">{icon}</span>
+          {name}
+        </button>
+      {/each}
+    </nav>
+
+    <div class="sidebar-foot">
+      <span class="saved" class:visible={saved}>Сохранено</span>
+      <div class="theme-seg" role="radiogroup" aria-label="Тема">
+        {#each [['system', '◐'], ['light', '☀'], ['dark', '☾']] as [t, glyph] (t)}
+          <button
+            class="theme-btn"
+            class:active={settings.theme === t}
+            role="radio"
+            aria-checked={settings.theme === t}
+            title={t === 'system' ? 'Системная тема' : t === 'light' ? 'Светлая тема' : 'Тёмная тема'}
+            onclick={() => (settings.theme = t as Theme)}
+          >
+            {glyph}
+          </button>
+        {/each}
+      </div>
+    </div>
+  </aside>
+
+  <main class="panel">
+    <h1>{SECTIONS.find(([id]) => id === active)?.[2]}</h1>
+
+    {#if loadingError}
+      <p class="error">Не удалось загрузить настройки: {loadingError}</p>
+    {/if}
+    {#if saveError}
+      <p class="error">Не удалось сохранить настройки: {saveError}</p>
     {/if}
 
-    <div class="field">
-      <label for="endpoint">Эндпоинт</label>
-      <input
-        id="endpoint"
-        type="text"
-        bind:value={settings.endpoint}
-        placeholder={settings.provider === 'google'
-          ? 'не требуется'
-          : settings.provider === 'qwen'
-            ? QWEN_DEFAULT_ENDPOINT
-            : 'https://api.openai.com/v1'}
-      />
-      {#if endpointError}
-        <span class="error">{endpointError}</span>
-      {/if}
-    </div>
-
-    <div class="field">
-      <label for="token">Токен</label>
-      <div class="token-row">
-        <input
-          id="token"
-          type={showToken ? 'text' : 'password'}
-          bind:value={settings.token}
-          placeholder={settings.provider === 'google' ? 'не требуется (без ключа)' : 'sk-...'}
-        />
-        <button
-          type="button"
-          class="eye"
-          aria-label={showToken ? 'Скрыть токен' : 'Показать токен'}
-          onclick={() => (showToken = !showToken)}
-        >
-          👁
-        </button>
-      </div>
-    </div>
-
-    <div class="field">
-      <div class="row">
-        <div class="field grow">
-          <label for="model">Модель</label>
-          <input
-            id="model"
-            type="text"
-            bind:value={settings.model}
-            placeholder={settings.provider === 'google'
-              ? 'не требуется'
-              : settings.provider === 'qwen'
-                ? QWEN_DEFAULT_MODEL
-                : 'whisper-1'}
-          />
+    {#if active === 'connect'}
+      <form class="stack" autocomplete="off" onsubmit={(e) => e.preventDefault()}>
+        <div class="prov-grid">
+          {#each [
+            ['openai', 'OpenAI-совместимый', 'Whisper и любые /v1-совместимые серверы', 'API-ключ'],
+            ['qwen', 'Qwen (DashScope)', 'Мультимодальная ASR Alibaba Cloud', 'API-ключ'],
+            ['google', 'Google', 'Скрытый API Chrome · без ключа · ≤15 с', 'бесплатно, офф-рекорд'],
+          ] as [id, title, desc, badge] (id)}
+            <label class="prov-card" class:selected={settings.provider === id}>
+              <input
+                type="radio"
+                name="provider"
+                value={id}
+                checked={settings.provider === id}
+                onchange={() => onProviderChange(id as Provider)}
+              />
+              <span class="prov-title">{title}</span>
+              <span class="prov-desc">{desc}</span>
+              <span class="prov-badge">{badge}</span>
+            </label>
+          {/each}
         </div>
-        <button type="button" class="check" onclick={testConnection} disabled={checking}>
-          {checking ? 'Проверка…' : 'Проверить'}
-        </button>
-      </div>
-      {#if checkResult}
-        <span
-          class="check-line {checkResult.ok ? 'check-ok' : 'check-err'}"
-          title={checkResult.ok
-            ? `Успех: ${checkResult.latencyMs} мс${checkResult.text ? `, «${checkResult.text}»` : ''}`
-            : checkResult.error ?? ''}
-        >
-          {#if checkResult.ok}
-            ✓ {checkResult.latencyMs} мс{#if checkResult.text}, {checkResult.text}{/if}
-          {:else}
-            ✗ {checkResult.error}
-          {/if}
-        </span>
-      {/if}
-    </div>
 
-    <div class="section">Ввод</div>
-
-    <div class="row">
-      <div class="field grow">
-        <label for="hotkey">Хоткей</label>
-        <input id="hotkey" type="text" bind:value={settings.hotkey} placeholder="Cmd+Shift+Space" />
-        {#if hotkeyError}
-          <span class="error">{hotkeyError}</span>
+        {#if settings.provider === 'google'}
+          <p class="hint google-hint">
+            Google: до ~15 с за запись, без ключа; может перестать работать в любой момент.
+            {#if settings.language === ''}Язык «авто» — реально уйдёт en-US.{/if}
+          </p>
         {/if}
-      </div>
-      <div class="field delay">
-        <label for="delay">Задержка, мс</label>
-        <input id="delay" type="number" min="0" step="10" bind:value={settings.insertDelayMs} />
-      </div>
-    </div>
 
-    <label class="switch">
-      <input type="checkbox" id="autostart" bind:checked={settings.autostart} />
-      Запускать при входе в систему
-    </label>
+        <div class="field">
+          <label for="language">Язык</label>
+          <select id="language" bind:value={settings.language} title={providerHint}>
+            {#each LANGUAGES as [code, name]}
+              <option value={code}>{name}</option>
+            {/each}
+          </select>
+        </div>
 
-    <div class="section">Проверка диктовки</div>
+        <details class="adv" bind:open={advOpen}>
+          <summary>Дополнительно</summary>
+          <div class="field">
+            <label for="endpoint">Эндпоинт</label>
+            <input
+              id="endpoint"
+              type="text"
+              bind:value={settings.endpoint}
+              placeholder={settings.provider === 'google'
+                ? 'не требуется'
+                : settings.provider === 'qwen'
+                  ? QWEN_DEFAULT_ENDPOINT
+                  : 'https://api.openai.com/v1'}
+            />
+            {#if endpointError}
+              <span class="error">{endpointError}</span>
+            {/if}
+          </div>
 
-    <div class="field">
-      <div class="mic-row">
-        <button
-          id="mic-btn"
-          type="button"
-          class="mic"
-          class:recording={micPhase === 'recording'}
-          class:processing={micPhase === 'processing'}
-          disabled={micPhase === 'processing'}
-          aria-pressed={micPhase === 'recording'}
-          onpointerdown={onMicDown}
-          onpointerup={onMicUp}
-          onpointercancel={onMicUp}
-          onlostpointercapture={onMicUp}
-          oncontextmenu={(e) => e.preventDefault()}
-        >
-          {micLabel}
-        </button>
-        <textarea
-          id="mic-result"
-          class="mic-result"
-          readonly
-          rows="2"
-          placeholder="Поле результата"
-          title={micResult}
-          bind:value={micResult}></textarea>
+          <div class="field">
+            <label for="token">Токен</label>
+            <div class="token-row">
+              <input
+                id="token"
+                type={showToken ? 'text' : 'password'}
+                bind:value={settings.token}
+                placeholder={settings.provider === 'google' ? 'не требуется (без ключа)' : 'sk-...'}
+              />
+              <button
+                type="button"
+                class="eye"
+                aria-label={showToken ? 'Скрыть токен' : 'Показать токен'}
+                onclick={() => (showToken = !showToken)}
+              >
+                👁
+              </button>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="row">
+              <div class="field grow">
+                <label for="model">Модель</label>
+                <input
+                  id="model"
+                  type="text"
+                  bind:value={settings.model}
+                  placeholder={settings.provider === 'google'
+                    ? 'не требуется'
+                    : settings.provider === 'qwen'
+                      ? QWEN_DEFAULT_MODEL
+                      : 'whisper-1'}
+                />
+              </div>
+              <button type="button" class="check" onclick={testConnection} disabled={checking}>
+                {checking ? 'Проверка…' : 'Проверить подключение'}
+              </button>
+            </div>
+            {#if checkResult}
+              <span
+                class="check-line {checkResult.ok ? 'check-ok' : 'check-err'}"
+                title={checkResult.ok
+                  ? `Успех: ${checkResult.latencyMs} мс${checkResult.text ? `, «${checkResult.text}»` : ''}`
+                  : checkResult.error ?? ''}
+              >
+                {#if checkResult.ok}
+                  ✓ {checkResult.latencyMs} мс{#if checkResult.text}, {checkResult.text}{/if}
+                {:else}
+                  ✗ {checkResult.error}
+                {/if}
+              </span>
+            {/if}
+          </div>
+        </details>
+      </form>
+    {:else if active === 'input'}
+      <form class="stack" autocomplete="off" onsubmit={(e) => e.preventDefault()}>
+        <div class="field">
+          <span class="lbl">Хоткей (удерживайте для записи)</span>
+          <HotkeyInput bind:value={settings.hotkey} />
+          {#if hotkeyError}
+            <span class="error">{hotkeyError}</span>
+          {:else}
+            <span class="hint">Клик — задать, Backspace — сброс к {''}Cmd+Shift+Space, Esc — отмена.</span>
+          {/if}
+        </div>
+
+        <div class="field">
+          <label for="delay-range">Задержка перед вставкой</label>
+          <div class="row delay-row">
+            <input
+              id="delay-range"
+              class="range"
+              type="range"
+              min="0"
+              max="500"
+              step="10"
+              bind:value={settings.insertDelayMs}
+            />
+            <input
+              id="delay"
+              class="delay-num"
+              type="number"
+              min="0"
+              max="500"
+              step="10"
+              bind:value={settings.insertDelayMs}
+            />
+            <span class="unit">мс</span>
+          </div>
+        </div>
+      </form>
+    {:else if active === 'autostart'}
+      <div class="stack">
+        <label class="big-switch">
+          <input type="checkbox" bind:checked={settings.autostart} />
+          <span class="track"><span class="thumb"></span></span>
+          <span class="switch-text">
+            <b>Запускать при входе в систему</b>
+            <span class="hint">VoiceDo будет доступен по хоткею сразу после загрузки macOS.</span>
+          </span>
+        </label>
       </div>
-      {#if micError}
-        <span class="error">{micError}</span>
-      {:else}
-        <span class="hint">Клик — вкл/выкл, удержание — пока держите. Вставка не выполняется.</span>
-      {/if}
-    </div>
-  </form>
-</main>
+    {:else}
+      <MicTest />
+    {/if}
+  </main>
+</div>
 
 <style>
-  .container {
-    padding: 10px 14px;
+  .shell {
+    display: flex;
+    height: 100dvh;
+    background: var(--bg);
+    color: var(--fg);
   }
 
-  h1 {
+  .sidebar {
+    flex: 0 0 180px;
     display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    font-size: 1rem;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 10px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    box-sizing: border-box;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 6px 6px;
+  }
+
+  .brand-name {
+    font-size: 0.95rem;
+    font-weight: 700;
+    background: var(--grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  nav {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font: inherit;
+    font-size: 0.82rem;
+    text-align: left;
+    padding: 8px 10px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .nav-item:hover {
+    background: var(--accent-soft);
+    color: var(--fg);
+  }
+
+  .nav-item.active {
+    background: var(--accent-soft);
+    color: var(--accent);
     font-weight: 600;
-    margin: 0 0 8px;
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+
+  .nav-icon {
+    width: 18px;
+    text-align: center;
+  }
+
+  .sidebar-foot {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 0 4px;
   }
 
   .saved {
-    font-size: 0.72rem;
-    font-weight: 400;
-    color: #2e7d32;
+    font-size: 0.7rem;
+    color: var(--ok);
     visibility: hidden;
+    height: 1em;
   }
 
   .saved.visible {
     visibility: visible;
   }
 
-  form {
+  .theme-seg {
     display: flex;
-    flex-direction: column;
-    gap: 7px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
   }
 
-  .section {
-    font-size: 0.66rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--color-muted, #888);
-    border-bottom: 1px solid #ddd;
-    padding-bottom: 2px;
-    margin-top: 3px;
+  .theme-btn {
+    flex: 1;
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 5px 0;
+    border: none;
+    background: var(--input);
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .theme-btn.active {
+    background: var(--grad);
+    color: #fff;
+  }
+
+  .panel {
+    flex: 1;
+    min-width: 0;
+    padding: 16px 20px;
+    overflow-y: auto;
+    box-sizing: border-box;
+  }
+
+  h1 {
+    font-size: 1rem;
+    font-weight: 650;
+    margin: 0 0 12px;
+  }
+
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 520px;
   }
 
   .row {
@@ -519,7 +585,7 @@
   .field {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
     min-width: 0;
   }
 
@@ -527,50 +593,124 @@
     flex: 1;
   }
 
-  .delay {
-    width: 105px;
-  }
-
-  .switch {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.75rem;
-    color: var(--color-fg, #333);
-    cursor: pointer;
-    margin-top: -2px;
-  }
-
-  .switch input {
-    width: auto;
-    margin: 0;
-  }
-
-  .lang {
-    width: 170px;
-  }
-
   label {
     font-size: 0.7rem;
-    color: var(--color-muted, #666);
+    color: var(--muted);
+  }
+
+  .lbl {
+    font-size: 0.7rem;
+    color: var(--muted);
   }
 
   input,
   select {
     font: inherit;
     font-size: 0.82rem;
-    padding: 5px 7px;
-    border: 1px solid #bbb;
-    border-radius: 6px;
-    background: var(--color-bg-input, #fff);
+    padding: 6px 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    background: var(--input);
+    color: var(--fg);
     width: 100%;
     box-sizing: border-box;
   }
 
-  input:focus,
-  select:focus {
-    outline: 2px solid #4a90d9;
+  input:focus-visible,
+  select:focus-visible {
+    outline: 2px solid var(--accent);
     outline-offset: -1px;
+  }
+
+  .prov-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .prov-card {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      'title badge'
+      'desc desc';
+    gap: 1px 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card);
+    cursor: pointer;
+    box-shadow: var(--shadow);
+  }
+
+  .prov-card input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .prov-card.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), var(--shadow);
+    background: color-mix(in srgb, var(--accent) 5%, var(--card));
+  }
+
+  .prov-title {
+    grid-area: title;
+    font-size: 0.85rem;
+    font-weight: 650;
+  }
+
+  .prov-desc {
+    grid-area: desc;
+    font-size: 0.7rem;
+    color: var(--muted);
+  }
+
+  .prov-badge {
+    grid-area: badge;
+    font-size: 0.62rem;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    white-space: nowrap;
+  }
+
+  .adv {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card);
+    padding: 8px 12px;
+  }
+
+  .adv summary {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .adv[open] summary {
+    margin-bottom: 8px;
+  }
+
+  .error {
+    font-size: 0.68rem;
+    color: var(--err);
+    margin: 0;
+  }
+
+  .hint {
+    font-size: 0.68rem;
+    color: var(--muted);
+    margin: 0;
+  }
+
+  .google-hint {
+    color: var(--warn);
   }
 
   .token-row {
@@ -584,36 +724,23 @@
 
   .eye {
     font-size: 0.85rem;
-    padding: 0 7px;
-    border: 1px solid #bbb;
-    border-radius: 6px;
+    padding: 0 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
     background: transparent;
+    color: var(--fg);
     cursor: pointer;
-  }
-
-  .error {
-    font-size: 0.68rem;
-    color: #c0392b;
-  }
-
-  .hint {
-    font-size: 0.68rem;
-    color: var(--color-muted, #666);
-  }
-
-  .google-hint {
-    margin: -2px 0 0;
-    color: #8a6d1a;
   }
 
   .check {
     flex-shrink: 0;
     font: inherit;
     font-size: 0.8rem;
-    padding: 5px 10px;
-    border: 1px solid #bbb;
-    border-radius: 6px;
-    background: var(--color-bg-input, #fff);
+    padding: 6px 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    background: var(--input);
+    color: var(--fg);
     cursor: pointer;
     white-space: nowrap;
   }
@@ -632,69 +759,84 @@
   }
 
   .check-ok {
-    color: #2e7d32;
+    color: var(--ok);
   }
 
   .check-err {
-    color: #c0392b;
+    color: var(--err);
   }
 
-  .mic-row {
-    display: flex;
-    gap: 8px;
-    align-items: stretch;
+  .delay-row {
+    align-items: center;
+    gap: 10px;
   }
 
-  .mic {
-    flex: 0 0 168px;
-    font: inherit;
-    font-size: 0.78rem;
-    padding: 6px 8px;
-    border: 1px solid #bbb;
-    border-radius: 6px;
-    background: var(--color-bg-input, #fff);
-    cursor: pointer;
-    touch-action: none;
-    user-select: none;
-  }
-
-  .mic:disabled {
-    cursor: wait;
-    opacity: 0.7;
-  }
-
-  .mic.recording {
-    background: #c0392b;
-    border-color: #922b21;
-    color: #fff;
-    animation: mic-pulse 1s ease-in-out infinite;
-  }
-
-  .mic.processing {
-    border-color: #4a90d9;
-    color: #2c5f8a;
-  }
-
-  @keyframes mic-pulse {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.55;
-    }
-  }
-
-  .mic-result {
+  .range {
     flex: 1;
-    min-width: 0;
-    font: inherit;
-    font-size: 0.8rem;
-    padding: 5px 7px;
-    border: 1px solid #bbb;
-    border-radius: 6px;
-    background: var(--color-bg-input, #f7f7f7);
-    box-sizing: border-box;
-    resize: vertical;
+    accent-color: var(--accent);
+    padding: 0;
+    border: none;
+    background: transparent;
+  }
+
+  .delay-num {
+    width: 74px;
+    flex: none;
+  }
+
+  .unit {
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+
+  .big-switch {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+  }
+
+  .big-switch input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .track {
+    flex: none;
+    width: 46px;
+    height: 26px;
+    border-radius: 999px;
+    background: var(--border-strong);
+    position: relative;
+    transition: background 0.15s;
+  }
+
+  .thumb {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    transition: transform 0.15s;
+  }
+
+  .big-switch input:checked + .track {
+    background: var(--grad);
+  }
+
+  .big-switch input:checked + .track .thumb {
+    transform: translateX(20px);
+  }
+
+  .switch-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 0.82rem;
+    color: var(--fg);
   }
 </style>

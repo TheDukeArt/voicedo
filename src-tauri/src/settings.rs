@@ -20,10 +20,17 @@ pub struct Settings {
     /// Автостарт при входе в систему. false по умолчанию — старые store-файлы
     /// без ключа не должны включать его.
     pub autostart: bool,
+    /// Тема интерфейса: "system" | "light" | "dark".
+    #[serde(default = "default_theme")]
+    pub theme: String,
 }
 
 fn default_provider() -> String {
     "openai".to_string()
+}
+
+fn default_theme() -> String {
+    "system".to_string()
 }
 
 impl Default for Settings {
@@ -41,6 +48,7 @@ impl Default for Settings {
             },
             insert_delay_ms: 50,
             autostart: false,
+            theme: default_theme(),
         }
     }
 }
@@ -112,6 +120,26 @@ mod tests {
         let s: Settings = serde_json::from_str(old).expect("old settings should deserialize");
         assert!(!s.autostart, "старые настройки не должны включать автостарт");
         assert_eq!(s.model, "m");
+    }
+
+    #[test]
+    fn old_store_without_theme_defaults_to_system() {
+        let old = r#"{
+            "provider": "openai",
+            "endpoint": "https://api.openai.com/v1",
+            "token": "t",
+            "model": "whisper-1",
+            "language": "ru",
+            "hotkey": "Cmd+Shift+Space",
+            "insertDelayMs": 50,
+            "autostart": false
+        }"#;
+        let s: Settings = serde_json::from_str(old).expect("store without theme should deserialize");
+        assert_eq!(s.theme, "system");
+        // и по умолчанию, и round-trip
+        assert_eq!(Settings::default().theme, "system");
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(json["theme"], "system");
     }
 
     #[test]

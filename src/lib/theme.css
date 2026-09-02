@@ -1,0 +1,104 @@
+/*
+ * VoiceDo design tokens.
+ * Базово — авто-режим (system): светлые значения + тёмные в @media.
+ * html[data-theme="light"] / [data-theme="dark"] перекрывают принудительно.
+ * ВАЖНО: light-значения дублированы в data-theme="light", иначе ручная светлая
+ * тема не перебьёт системную тёмную @media.
+ */
+:root {
+  color-scheme: light dark;
+
+  --bg: #f4f5f8;
+  --panel: #ffffff;
+  --card: #ffffff;
+  --input: #ffffff;
+  --border: #d9dce3;
+  --border-strong: #b9bdc7;
+  --fg: #1c2029;
+  --muted: #6b7280;
+  --accent: #4f6ef7;
+  --accent-2: #28c8e6;
+  --grad: linear-gradient(135deg, #4f6ef7, #28c8e6);
+  --accent-soft: rgba(79, 110, 247, 0.12);
+  --ok: #2e7d32;
+  --err: #c0392b;
+  --warn: #8a6d1a;
+  --chip: #eef0f6;
+  --shadow: 0 1px 3px rgba(20, 24, 40, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161c;
+    --panel: #1c1f27;
+    --card: #23262f;
+    --input: #1a1d24;
+    --border: #333742;
+    --border-strong: #4a4f5c;
+    --fg: #e8eaf0;
+    --muted: #9aa0ac;
+    --accent: #6d87ff;
+    --accent-2: #3fd8f0;
+    --grad: linear-gradient(135deg, #6d87ff, #3fd8f0);
+    --accent-soft: rgba(109, 135, 255, 0.18);
+    --ok: #66bb6a;
+    --err: #ef6c5a;
+    --warn: #d3b25e;
+    --chip: #2a2e38;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* Принудительная светлая: дублируем light-токены, чтобы перебить @media выше */
+html[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: #f4f5f8;
+  --panel: #ffffff;
+  --card: #ffffff;
+  --input: #ffffff;
+  --border: #d9dce3;
+  --border-strong: #b9bdc7;
+  --fg: #1c2029;
+  --muted: #6b7280;
+  --accent: #4f6ef7;
+  --accent-2: #28c8e6;
+  --grad: linear-gradient(135deg, #4f6ef7, #28c8e6);
+  --accent-soft: rgba(79, 110, 247, 0.12);
+  --ok: #2e7d32;
+  --err: #c0392b;
+  --warn: #8a6d1a;
+  --chip: #eef0f6;
+  --shadow: 0 1px 3px rgba(20, 24, 40, 0.08);
+}
+
+html[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #14161c;
+  --panel: #1c1f27;
+  --card: #23262f;
+  --input: #1a1d24;
+  --border: #333742;
+  --border-strong: #4a4f5c;
+  --fg: #e8eaf0;
+  --muted: #9aa0ac;
+  --accent: #6d87ff;
+  --accent-2: #3fd8f0;
+  --grad: linear-gradient(135deg, #6d87ff, #3fd8f0);
+  --accent-soft: rgba(109, 135, 255, 0.18);
+  --ok: #66bb6a;
+  --err: #ef6c5a;
+  --warn: #d3b25e;
+  --chip: #2a2e38;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+}
