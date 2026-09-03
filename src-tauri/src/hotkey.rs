@@ -95,7 +95,7 @@ fn on_pressed(app: &AppHandle) {
         log::warn!("[hotkey] pressed while already recording — ignored");
         return;
     }
-    match recorder_state.start() {
+    match recorder_state.start(&settings::load_settings(app).input_device) {
         Ok(()) => {
             tray::set_tray_state(app, tray::TrayState::Recording);
             log::info!("[hotkey] recording started");

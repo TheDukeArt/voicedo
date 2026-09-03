@@ -50,6 +50,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             settings::get_settings,
             settings::save_settings,
+            recorder::list_input_devices,
             asr::test_connection,
             test_panel::start_test_dictation,
             test_panel::stop_test_dictation

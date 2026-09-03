@@ -23,6 +23,9 @@ pub struct Settings {
     /// Тема интерфейса: "system" | "light" | "dark".
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// Имя входного аудиоустройства (cpal); пусто — системное по умолчанию.
+    #[serde(default)]
+    pub input_device: String,
 }
 
 fn default_provider() -> String {
@@ -49,6 +52,7 @@ impl Default for Settings {
             insert_delay_ms: 50,
             autostart: false,
             theme: default_theme(),
+            input_device: String::new(),
         }
     }
 }
@@ -140,6 +144,25 @@ mod tests {
         assert_eq!(Settings::default().theme, "system");
         let json = serde_json::to_value(&s).unwrap();
         assert_eq!(json["theme"], "system");
+    }
+
+    #[test]
+    fn old_store_without_input_device_defaults_to_empty() {
+        let old = r#"{
+            "provider": "openai",
+            "endpoint": "https://api.openai.com/v1",
+            "token": "t",
+            "model": "whisper-1",
+            "language": "ru",
+            "hotkey": "Cmd+Shift+Space",
+            "insertDelayMs": 50,
+            "autostart": false,
+            "theme": "dark"
+        }"#;
+        let s: Settings = serde_json::from_str(old).expect("store without inputDevice should deserialize");
+        assert!(s.input_device.is_empty());
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(json["inputDevice"], "");
     }
 
     #[test]

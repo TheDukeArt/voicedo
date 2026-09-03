@@ -18,7 +18,10 @@
     insertDelayMs: number;
     autostart: boolean;
     theme: Theme;
+    inputDevice: string;
   };
+
+  type InputDevice = { name: string; isDefault: boolean; formats: string[] };
 
   const QWEN_DEFAULT_ENDPOINT =
     'https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation';
@@ -59,7 +62,20 @@
     insertDelayMs: 50,
     autostart: false,
     theme: 'system',
+    inputDevice: '',
   });
+  let devices = $state<InputDevice[]>([]);
+  let devicesError = $state('');
+
+  function loadDevices() {
+    invoke<InputDevice[]>('list_input_devices')
+      .then((d) => {
+        devices = d;
+        devicesError = '';
+      })
+      .catch((e) => (devicesError = String(e)));
+  }
+  loadDevices();
   let loaded = $state(false);
   let loadingError = $state('');
   let saveError = $state('');
@@ -160,7 +176,7 @@
   $effect(() => {
     invoke<Settings>('get_settings')
       .then((s) => {
-        settings = { ...s, theme: s.theme ?? 'system' };
+        settings = { ...s, theme: s.theme ?? 'system', inputDevice: s.inputDevice ?? '' };
         loaded = true;
       })
       .catch((e) => {
@@ -182,6 +198,7 @@
       settings.insertDelayMs,
       settings.autostart,
       settings.theme,
+      settings.inputDevice,
     ];
     if (endpointError || hotkeyError) return;
     const snapshot: Settings = { ...settings };
@@ -388,6 +405,28 @@
       </form>
     {:else if active === 'input'}
       <form class="stack" autocomplete="off" onsubmit={(e) => e.preventDefault()}>
+        <div class="field">
+          <label for="mic">Микрофон</label>
+          <div class="row delay-row">
+            <select
+              id="mic"
+              bind:value={settings.inputDevice}
+              title={devices.map((d) => `${d.name} — ${d.formats.join(', ')}`).join('\n')}
+            >
+              <option value="">Системный по умолчанию</option>
+              {#each devices as d (d.name)}
+                <option value={d.name}>{d.name}{d.isDefault ? ' (по умолчанию)' : ''}</option>
+              {/each}
+            </select>
+            <button class="btn" type="button" onclick={loadDevices} title="Обновить список устройств">↻</button>
+          </div>
+          {#if devicesError}
+            <span class="error">Список устройств недоступен: {devicesError}</span>
+          {:else if settings.inputDevice && !devices.some((d) => d.name === settings.inputDevice)}
+            <span class="hint">⚠ Выбранное устройство сейчас не найдено — запись не начнётся, пока не вернётся устройство или не выбрано другое.</span>
+          {/if}
+        </div>
+
         <div class="field">
           <span class="lbl">Хоткей (удерживайте для записи)</span>
           <HotkeyInput bind:value={settings.hotkey} />

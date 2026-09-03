@@ -65,7 +65,7 @@ pub fn start_test_dictation(
         // Перезапуск теста: предыдущий результат будет отброшен по seq.
         let _ = rec.stop();
     }
-    match rec.start() {
+    match rec.start(&settings::load_settings(&app).input_device) {
         Ok(()) => {
             panel.recording.store(true, Ordering::SeqCst);
             let seq = panel.next_seq();

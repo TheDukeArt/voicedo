@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, InputCallbackInfo, Sample, SampleFormat, SupportedStreamConfig};
+use serde::Serialize;
 
 /// Целевая частота для ASR: 16 кГц, моно, 16-bit PCM (см. PLAN.md «Параметры аудио»).
 pub const TARGET_SAMPLE_RATE: u32 = 16_000;
@@ -12,6 +13,8 @@ pub const TARGET_SAMPLE_RATE: u32 = 16_000;
 pub enum RecorderError {
     /// Ни одно входное устройство не найдено
     NoInputDevice,
+    /// Сохранённое предпочтительное устройство больше не доступно
+    PreferredDeviceGone(String),
     /// Не удалось собрать поток (ошибка cpal)
     Build(String),
     /// Формат сэмплов устройства не поддерживается
@@ -23,6 +26,12 @@ impl fmt::Display for RecorderError {
         let msg = match self {
             RecorderError::NoInputDevice => {
                 "Микрофон не найден — проверьте, что входное устройство подключено и разрешено (macOS: Настройки → Конфиденциальность → Микрофон)"
+            }
+            RecorderError::PreferredDeviceGone(name) => {
+                return write!(
+                    f,
+                    "Выбранный микрофон «{name}» не найден — выберите другое устройство в настройках VoiceDo"
+                )
             }
             RecorderError::Build(e) => {
                 return write!(f, "Не удалось открыть поток записи: {e}")
@@ -73,12 +82,12 @@ impl Recorder {
     }
 
     /// Старт захвата. Повторный вызов во время активной записи — no-op (защита от
-    /// Pressed без Released).
-    pub fn start(&self) -> Result<(), RecorderError> {
+    /// Pressed без Released). `preferred` — имя устройства из настроек (пусто = дефолт ОС).
+    pub fn start(&self, preferred: &str) -> Result<(), RecorderError> {
         if self.is_recording() {
             return Ok(());
         }
-        let (device, config) = pick_input_config()?;
+        let (device, config) = pick_input_config(preferred)?;
         let rate = config.sample_rate();
         let channels = config.channels().max(1) as usize;
         let samples: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
@@ -120,12 +129,81 @@ impl Recorder {
     }
 }
 
-/// Best-effort выбор устройства и конфига: сначала пробуем найти 16 кГц на любом
-/// входном устройстве (моно предпочтительно), иначе — первое попавшееся входное
-/// устройство с его дефолтным конфигом (частоту приведём ресемплингом на стопе).
-fn pick_input_config() -> Result<(cpal::Device, SupportedStreamConfig), RecorderError> {
+fn device_name(device: &cpal::Device) -> Option<String> {
+    device.description().ok().map(|d| d.name().to_string())
+}
+
+/// Форматы, которые умеем захватывать и конвертировать в mono-i16.
+fn is_supported_format(format: SampleFormat) -> bool {
+    matches!(
+        format,
+        SampleFormat::I8
+            | SampleFormat::I16
+            | SampleFormat::I24
+            | SampleFormat::I32
+            | SampleFormat::F32
+            | SampleFormat::F64
+            | SampleFormat::U8
+            | SampleFormat::U16
+            | SampleFormat::U24
+    )
+}
+
+/// Из конфигов устройства выбираем лучший: 16 кГц моно > 16 кГц > первый
+/// поддерживаемого формата. Возвращает None, если у устройства только неподдерживаемые форматы.
+fn best_config(device: &cpal::Device) -> Option<SupportedStreamConfig> {
+    let configs = device.supported_input_configs().ok()?;
+    let mut mono_16k = None;
+    let mut any_16k = None;
+    let mut first_supported = None;
+    for range in configs {
+        if !is_supported_format(range.sample_format()) {
+            continue;
+        }
+        if first_supported.is_none() {
+            first_supported = Some(range.clone());
+        }
+        if !range.contains_rate(TARGET_SAMPLE_RATE) {
+            continue;
+        }
+        let cfg = range.clone().with_sample_rate(TARGET_SAMPLE_RATE);
+        if range.channels() == 1 && mono_16k.is_none() {
+            mono_16k = Some(cfg);
+        } else if any_16k.is_none() {
+            any_16k = Some(cfg);
+        }
+    }
+    mono_16k
+        .or(any_16k)
+        .or_else(|| first_supported.map(|r| r.with_max_sample_rate()))
+}
+
+/// Best-effort выбор устройства и конфига: если в настройках выбрано устройство по
+/// имени — работаем только с ним; иначе сначала дефолтное устройство ОС, затем
+/// остальные входные. Неподдерживаемые форматы (DSD и пр.) пропускаются — берём
+/// следующее устройство.
+fn pick_input_config(preferred: &str) -> Result<(cpal::Device, SupportedStreamConfig), RecorderError> {
     let host = cpal::default_host();
-    let mut fallback: Option<(cpal::Device, SupportedStreamConfig)> = None;
+    let preferred = preferred.trim();
+
+    if !preferred.is_empty() {
+        let mut found_unsupported = false;
+        if let Ok(devices) = host.input_devices() {
+            for device in devices {
+                if device_name(&device).as_deref().unwrap_or("") != preferred {
+                    continue;
+                }
+                match best_config(&device) {
+                    Some(config) => return Ok((device, config)),
+                    None => found_unsupported = true,
+                }
+            }
+        }
+        if found_unsupported {
+            return Err(RecorderError::UnsupportedFormat(preferred.to_string()));
+        }
+        return Err(RecorderError::PreferredDeviceGone(preferred.to_string()));
+    }
 
     let mut candidates: Vec<cpal::Device> = Vec::new();
     if let Some(d) = host.default_input_device() {
@@ -139,37 +217,53 @@ fn pick_input_config() -> Result<(cpal::Device, SupportedStreamConfig), Recorder
         }
     }
 
+    let mut saw_device = false;
     for device in candidates {
-        let Ok(configs) = device.supported_input_configs() else {
-            continue;
-        };
-        let mut mono_16k = None;
-        let mut any_16k = None;
-        let mut first = None;
-        for range in configs {
-            if first.is_none() {
-                first = Some(range.clone());
-            }
-            if !range.contains_rate(TARGET_SAMPLE_RATE) {
-                continue;
-            }
-            let cfg = range.clone().with_sample_rate(TARGET_SAMPLE_RATE);
-            if range.channels() == 1 && mono_16k.is_none() {
-                mono_16k = Some(cfg);
-            } else if any_16k.is_none() {
-                any_16k = Some(cfg);
-            }
-        }
-        if let Some(config) = mono_16k.or(any_16k) {
+        saw_device = true;
+        if let Some(config) = best_config(&device) {
             return Ok((device, config));
         }
-        if fallback.is_none() {
-            if let Some(range) = first {
-                fallback = Some((device, range.with_max_sample_rate()));
-            }
+    }
+    if saw_device {
+        return Err(RecorderError::UnsupportedFormat("ни одно устройство не даёт PCM/float-вход".into()));
+    }
+    Err(RecorderError::NoInputDevice)
+}
+
+#[derive(Serialize)]
+pub struct InputDeviceInfo {
+    pub name: String,
+    pub is_default: bool,
+    pub formats: Vec<String>,
+}
+
+/// Перечислить входные устройства для выпадающего списка в настройках.
+#[tauri::command]
+pub fn list_input_devices() -> Vec<InputDeviceInfo> {
+    let host = cpal::default_host();
+    let default_name = host
+        .default_input_device()
+        .and_then(|d| device_name(&d))
+        .unwrap_or_default();
+    let mut out = Vec::new();
+    if let Ok(devices) = host.input_devices() {
+        for device in devices {
+            let Some(name) = device_name(&device) else { continue };
+            let formats = device
+                .supported_input_configs()
+                .map(|configs| {
+                    let mut v: Vec<String> =
+                        configs.map(|c| c.sample_format().to_string()).collect();
+                    v.sort();
+                    v.dedup();
+                    v
+                })
+                .unwrap_or_default();
+            let is_default = name == default_name;
+            out.push(InputDeviceInfo { name, is_default, formats });
         }
     }
-    fallback.ok_or(RecorderError::NoInputDevice)
+    out
 }
 
 /// Сборка входного потока с конверсией в моно-i16 на лету (даунмикс каналов).
@@ -199,9 +293,14 @@ fn build_input_stream(
     let format = config.sample_format();
     let stream = match format {
         SampleFormat::F32 => build!(f32),
+        SampleFormat::F64 => build!(f64),
         SampleFormat::I16 => build!(i16),
+        SampleFormat::I24 => build!(cpal::I24),
         SampleFormat::I32 => build!(i32),
         SampleFormat::I8 => build!(i8),
+        SampleFormat::U8 => build!(u8),
+        SampleFormat::U16 => build!(u16),
+        SampleFormat::U24 => build!(cpal::U24),
         other => return Err(RecorderError::UnsupportedFormat(other.to_string())),
     };
     stream.map_err(|e| RecorderError::Build(e.to_string()))

@@ -12,8 +12,11 @@ fn contains_any(haystack: &str, needles: &[&str]) -> bool {
 pub fn microphone(e: &RecorderError) -> String {
     match e {
         RecorderError::NoInputDevice => e.to_string(),
+        RecorderError::PreferredDeviceGone(_) => e.to_string(),
         RecorderError::UnsupportedFormat(f) => {
-            format!("Микрофон: неподдерживаемый формат {f} — попробуйте другое входное устройство")
+            format!(
+                "Микрофон ({f}): неподдерживаемый формат — выберите другое входное устройство в настройках VoiceDo (раздел «Ввод»)"
+            )
         }
         RecorderError::Build(raw) => {
             let lower = raw.to_lowercase();
@@ -51,6 +54,20 @@ mod tests {
             assert!(msg.contains("Конфиденциальность"), "{msg}");
             assert!(msg.contains("Микрофон"), "{msg}");
         }
+    }
+
+    #[test]
+    fn unsupported_format_points_to_settings() {
+        let msg = microphone(&RecorderError::UnsupportedFormat("DsdU8".into()));
+        assert!(msg.contains("DsdU8"), "{msg}");
+        assert!(msg.contains("настройках"), "{msg}");
+    }
+
+    #[test]
+    fn preferred_device_gone_names_device() {
+        let msg = microphone(&RecorderError::PreferredDeviceGone("Геймерский микрофон".into()));
+        assert!(msg.contains("Геймерский микрофон"), "{msg}");
+        assert!(msg.contains("не найден"), "{msg}");
     }
 
     #[test]
