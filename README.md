@@ -1,7 +1,60 @@
-# Tauri + SvelteKit + TypeScript
+# VoiceDo
 
-This template should help get you started developing with Tauri, SvelteKit and TypeScript in Vite.
+Диктовка голосом для macOS и Windows: говорит — печатается. Зажал горячую клавишу,
+произнёс фразу, отпустил — текст распознаётся ИИ и вставляется прямо в активное
+приложение (редактор, браузер, мессенджер). Без подписок: свой ключ любого
+OpenAI-совместимого ASR-провайдера (BYOK).
 
-## Recommended IDE Setup
+- **Версия:** 0.1.1 (рабочий прототип, macOS; Windows-сборка в планах)
+- **стек:** Tauri 2 + Rust (бэкенд) · SvelteKit + TypeScript (UI) · ~8 МБ бинарник
+- **Платформы:** macOS (проверено) · Windows (план 0.2)
 
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer).
+## Возможности сейчас
+
+- Push-to-talk: глобальный настраиваемый хоткей (зажать/отпустить)
+- ASR-провайдеры: OpenAI-совместимый (`/audio/transcriptions`), Qwen/DashScope
+  (multimodal-generation), Google (бесплатный неофициальный)
+- Настройка эндпоинта, токена, модели, языка, микрофона, задержки вставки
+- Кнопка «Проверить подключение» и тестовый диктант прямо в окне настроек
+- Трей-иконка с состояниями: готов / запись / обработка / ошибка
+- Автовставка текста через эмуляцию клавиатуры (юникод/кириллица), тема light/dark,
+  автостарт, автозапуск с корректными разрешениями macOS (микрофон, Accessibility)
+
+## Сборка и запуск
+
+Требования: Rust ≥ 1.80, Node ≥ 20, [`tauri-cli`](https://v2.tauri.app/start/prerequisites/).
+
+```bash
+npm install
+npm run tauri dev      # режим разработки
+npm run tauri build    # дистрибутив (.dmg / .msi)
+```
+
+## Структура
+
+```
+src-tauri/src/
+├── main.rs / lib.rs   # инициализация Tauri, плагины, setup
+├── tray.rs            # трей и состояния иконки
+├── hotkey.rs          # глобальный хоткей → запись → ASR → вставка
+├── recorder.rs        # cpal: захват микрофона → WAV 16 кГц моно
+├── asr.rs             # провайдеры распознавания + тест подключения
+├── typer.rs           # enigo: вставка текста в активное окно
+├── settings.rs        # tauri-plugin-store
+├── accessibility.rs   # разрешения macOS
+└── test_panel.rs      # тестовый диктант в окне настроек
+src/                   # SvelteKit: окно настроек
+```
+
+## Планы и статус работ
+
+| Документ | Содержание |
+|---|---|
+| [PLAN.md](PLAN.md) | Текущая архитектура 0.1: стек, потоки, форматы запросов, риски |
+| [PLAN-0.2-PRELIMINARY.md](PLAN-0.2-PRELIMINARY.md) | Черновик 0.2: i18n EN/RU, публичный релиз (AGPL, Homebrew/WinGet, подпись/нотаризация), локальный ASR (sherpa-onnx + GigaAM), wake word, лендинг voicedo.app |
+| [TODO.md](TODO.md) | Чек-лист этапов реализации 0.1 (этапы 0–9) |
+
+## Лицензия
+
+Целевая модель публичного релиза — **AGPL-3.0** (решение зафиксировано в плане 0.2);
+файл `LICENSE` появится при открытии репозитория. До этого — частная разработка.
