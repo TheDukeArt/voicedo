@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
+  import { getVersion } from '@tauri-apps/api/app';
   import HotkeyInput from '$lib/components/HotkeyInput.svelte';
   import MicTest from '$lib/components/MicTest.svelte';
   import { validateHotkey } from '$lib/hotkey';
@@ -66,6 +67,8 @@
   });
   let devices = $state<InputDevice[]>([]);
   let devicesError = $state('');
+  let appVersion = $state('');
+  getVersion().then((v) => (appVersion = v)).catch(() => {});
 
   function loadDevices() {
     invoke<InputDevice[]>('list_input_devices')
@@ -249,6 +252,7 @@
         </defs>
       </svg>
       <span class="brand-name">VoiceDo</span>
+      {#if appVersion}<span class="brand-ver">v{appVersion}</span>{/if}
     </div>
 
     <nav>
@@ -512,6 +516,12 @@
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
+  }
+
+  .brand-ver {
+    font-size: 0.68rem;
+    color: var(--muted, #8a8f98);
+    align-self: center;
   }
 
   nav {
