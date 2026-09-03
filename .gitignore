@@ -20,3 +20,6 @@ target/
 
 # Рабочая пада скиллов qwencloud-*
 output/
+
+# MCP playwright артефакты
+.playwright-mcp/
