@@ -7,7 +7,7 @@
 
   type Provider = 'openai' | 'qwen' | 'google';
   type Theme = 'system' | 'light' | 'dark';
-  type Section = 'connect' | 'input' | 'autostart' | 'check';
+  type Section = 'connect' | 'input' | 'autostart' | 'check' | 'stats';
 
   type Settings = {
     provider: Provider;
@@ -20,9 +20,24 @@
     autostart: boolean;
     theme: Theme;
     inputDevice: string;
+    typingSpeedWpm: number;
+    statsEnabled: boolean;
   };
 
   type InputDevice = { name: string; isDefault: boolean; formats: string[] };
+
+  type DayStats = { words: number; chars: number; sessions: number; audioSec: number };
+  type ChartPoint = { date: string; words: number };
+  type StatsSummary = {
+    today: DayStats;
+    weekWords: number;
+    lifetime: DayStats;
+    streakDays: number;
+    bestDayWords: number;
+    minutesSavedToday: number;
+    minutesSavedTotal: number;
+    chart: ChartPoint[];
+  };
 
   const QWEN_DEFAULT_ENDPOINT =
     'https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation';
@@ -51,6 +66,7 @@
     ['input', '⌨️', 'Ввод'],
     ['autostart', '🚀', 'Автозапуск'],
     ['check', '🎙', 'Проверка'],
+    ['stats', '📈', 'Статистика'],
   ];
 
   let settings = $state<Settings>({
@@ -64,6 +80,8 @@
     autostart: false,
     theme: 'system',
     inputDevice: '',
+    typingSpeedWpm: 40,
+    statsEnabled: true,
   });
   let devices = $state<InputDevice[]>([]);
   let devicesError = $state('');
@@ -90,6 +108,32 @@
   let advOpen = $state(false);
 
   type TestResult = { ok: boolean; text: string | null; latencyMs: number; error: string | null };
+
+  let stats = $state<StatsSummary | null>(null);
+  let statsError = $state('');
+
+  function loadStats() {
+    if (!settings.statsEnabled) return;
+    invoke<StatsSummary>('get_stats')
+      .then((s) => {
+        stats = s;
+        statsError = '';
+      })
+      .catch((e) => (statsError = String(e)));
+  }
+
+  function fmtInt(n: number): string {
+    return n.toLocaleString('ru-RU');
+  }
+
+  function fmtMinutes(m: number): string {
+    if (m < 60) return `${m} мин`;
+    const h = Math.floor(m / 60);
+    const mm = m % 60;
+    return mm ? `${h} ч ${mm} мин` : `${h} ч`;
+  }
+
+  let chartMax = $derived(stats ? Math.max(1, ...stats.chart.map((p) => p.words)) : 1);
 
   async function testConnection() {
     checking = true;
@@ -179,7 +223,13 @@
   $effect(() => {
     invoke<Settings>('get_settings')
       .then((s) => {
-        settings = { ...s, theme: s.theme ?? 'system', inputDevice: s.inputDevice ?? '' };
+        settings = {
+          ...s,
+          theme: s.theme ?? 'system',
+          inputDevice: s.inputDevice ?? '',
+          typingSpeedWpm: s.typingSpeedWpm ?? 40,
+          statsEnabled: s.statsEnabled ?? true,
+        };
         loaded = true;
       })
       .catch((e) => {
@@ -202,6 +252,8 @@
       settings.autostart,
       settings.theme,
       settings.inputDevice,
+      settings.typingSpeedWpm,
+      settings.statsEnabled,
     ];
     if (endpointError || hotkeyError) return;
     const snapshot: Settings = { ...settings };
@@ -217,6 +269,14 @@
         .catch((e) => (saveError = String(e)));
     }, 400);
     return () => clearTimeout(saveTimer);
+  });
+
+  $effect(() => {
+    if (active !== 'stats') return;
+    loadStats();
+    const onFocus = () => loadStats();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
   });
 
   // Применение темы: system — снимаем data-theme, дальше работает prefers-color-scheme
@@ -476,6 +536,107 @@
             <span class="hint">VoiceDo будет доступен по хоткею сразу после загрузки macOS.</span>
           </span>
         </label>
+      </div>
+    {:else if active === 'stats'}
+      <div class="stack stats">
+        <label class="big-switch">
+          <input type="checkbox" bind:checked={settings.statsEnabled} />
+          <span class="track"><span class="thumb"></span></span>
+          <span class="switch-text">
+            <b>Вести статистику диктовок</b>
+            <span class="hint">Все данные хранятся только на этом устройстве.</span>
+          </span>
+        </label>
+
+        {#if !settings.statsEnabled}
+          <p class="hint">Статистика выключена — новые диктовки не учитываются.</p>
+        {:else if statsError}
+          <p class="error">Не удалось загрузить статистику: {statsError}</p>
+        {:else if stats}
+          <div class="hero-card">
+            <div class="hero-num">≈ {fmtMinutes(stats.minutesSavedToday)}</div>
+            <div class="hero-label">печати сэкономлено сегодня</div>
+            <div class="hero-sub">всего ≈ {fmtMinutes(stats.minutesSavedTotal)}</div>
+          </div>
+
+          <div class="stat-grid">
+            <div class="stat-card">
+              <span class="stat-num">{fmtInt(stats.today.words)}</span>
+              <span class="stat-lbl">слов сегодня</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-num">{fmtInt(stats.weekWords)}</span>
+              <span class="stat-lbl">за 7 дней</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-num">{fmtInt(stats.lifetime.words)}</span>
+              <span class="stat-lbl">всего</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-num">{stats.streakDays} 🔥</span>
+              <span class="stat-lbl">дней подряд</span>
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-head">
+              <span class="stat-lbl">Слова за 14 дней</span>
+              <span class="stat-lbl">рекорд: {fmtInt(stats.bestDayWords)}</span>
+            </div>
+            <svg class="chart" viewBox="0 0 280 64" role="img" aria-label="Слова за последние 14 дней">
+              {#each stats.chart as p, i (p.date)}
+                {@const h = Math.max(2, (p.words / chartMax) * 56)}
+                <rect
+                  x={i * 20 + 3}
+                  y={64 - h}
+                  width="14"
+                  height={h}
+                  rx="2"
+                  class:today-bar={i === stats.chart.length - 1}
+                >
+                  <title>{p.date}: {fmtInt(p.words)} слов</title>
+                </rect>
+              {/each}
+            </svg>
+            <div class="chart-axis">
+              <span>{stats.chart[0]?.date.slice(8)}</span>
+              <span>сегодня</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="wpm">Скорость вашей печати (для оценки экономии)</label>
+            <div class="row delay-row">
+              <input
+                id="wpm"
+                class="range"
+                type="range"
+                min="20"
+                max="80"
+                step="5"
+                bind:value={settings.typingSpeedWpm}
+              />
+              <input
+                id="wpm-num"
+                class="delay-num"
+                type="number"
+                min="20"
+                max="80"
+                step="5"
+                bind:value={settings.typingSpeedWpm}
+              />
+              <span class="unit">слов/мин</span>
+            </div>
+            <span class="hint">Средняя скорость печати — около 40 слов/мин.</span>
+          </div>
+
+          <p class="hint">
+            Диктовок сегодня: {fmtInt(stats.today.sessions)} · надиктовано аудио:
+            {(Math.round(stats.today.audioSec / 6) / 10).toLocaleString('ru-RU')} мин
+          </p>
+        {:else}
+          <p class="hint">Загрузка…</p>
+        {/if}
       </div>
     {:else}
       <MicTest />
@@ -887,5 +1048,97 @@
     gap: 2px;
     font-size: 0.82rem;
     color: var(--fg);
+  }
+
+  .hero-card {
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--card);
+    box-shadow: var(--shadow);
+    text-align: center;
+  }
+
+  .hero-num {
+    font-size: 1.9rem;
+    font-weight: 750;
+    background: var(--grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .hero-label {
+    font-size: 0.78rem;
+    margin-top: 2px;
+  }
+
+  .hero-sub {
+    font-size: 0.68rem;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px;
+  }
+
+  .stat-card {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card);
+    box-shadow: var(--shadow);
+  }
+
+  .stat-num {
+    font-size: 1.05rem;
+    font-weight: 700;
+  }
+
+  .stat-lbl {
+    font-size: 0.66rem;
+    color: var(--muted);
+  }
+
+  .chart-card {
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card);
+    box-shadow: var(--shadow);
+  }
+
+  .chart-head {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+
+  .chart {
+    width: 100%;
+    height: 64px;
+    display: block;
+  }
+
+  .chart rect {
+    fill: var(--accent-soft);
+  }
+
+  .chart rect.today-bar {
+    fill: var(--accent);
+  }
+
+  .chart-axis {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.62rem;
+    color: var(--muted);
+    margin-top: 4px;
   }
 </style>

@@ -5187,6 +5187,7 @@ name = "voicedo"
 version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
  "core-foundation 0.10.1",
  "cpal",
  "enigo",

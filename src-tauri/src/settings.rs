@@ -26,6 +26,12 @@ pub struct Settings {
     /// Имя входного аудиоустройства (cpal); пусто — системное по умолчанию.
     #[serde(default)]
     pub input_device: String,
+    /// Скорость печати пользователя (слов/мин) для оценки сэкономленного времени.
+    #[serde(default = "default_typing_speed_wpm")]
+    pub typing_speed_wpm: u32,
+    /// Локальный учёт статистики диктовок; данные не покидают устройство.
+    #[serde(default = "default_stats_enabled")]
+    pub stats_enabled: bool,
 }
 
 fn default_provider() -> String {
@@ -34,6 +40,14 @@ fn default_provider() -> String {
 
 fn default_theme() -> String {
     "system".to_string()
+}
+
+fn default_typing_speed_wpm() -> u32 {
+    40
+}
+
+fn default_stats_enabled() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -53,6 +67,8 @@ impl Default for Settings {
             autostart: false,
             theme: default_theme(),
             input_device: String::new(),
+            typing_speed_wpm: default_typing_speed_wpm(),
+            stats_enabled: default_stats_enabled(),
         }
     }
 }
@@ -163,6 +179,24 @@ mod tests {
         assert!(s.input_device.is_empty());
         let json = serde_json::to_value(&s).unwrap();
         assert_eq!(json["inputDevice"], "");
+    }
+
+    #[test]
+    fn old_store_without_stats_fields_defaults_on() {
+        let old = r#"{
+            "provider": "openai",
+            "endpoint": "https://api.openai.com/v1",
+            "token": "t",
+            "model": "whisper-1",
+            "language": "ru",
+            "hotkey": "Cmd+Shift+Space",
+            "insertDelayMs": 50,
+            "autostart": false
+        }"#;
+        let s: Settings =
+            serde_json::from_str(old).expect("store without stats fields should deserialize");
+        assert_eq!(s.typing_speed_wpm, 40);
+        assert!(s.stats_enabled, "статистика по умолчанию включена (локальные данные)");
     }
 
     #[test]

@@ -4,6 +4,7 @@ mod error_msg;
 mod hotkey;
 mod recorder;
 mod settings;
+mod stats;
 mod test_panel;
 mod tray;
 mod typer;
@@ -51,6 +52,7 @@ pub fn run() {
             settings::get_settings,
             settings::save_settings,
             recorder::list_input_devices,
+            stats::get_stats,
             asr::test_connection,
             test_panel::start_test_dictation,
             test_panel::stop_test_dictation

@@ -5,7 +5,7 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_notification::NotificationExt;
 
-use crate::{asr, error_msg, recorder, settings, tray, typer};
+use crate::{asr, error_msg, recorder, settings, stats, tray, typer};
 
 /// Разбор строки хоткея из настроек (вид «Cmd+Shift+Space») в Shortcut.
 pub fn parse_hotkey(value: &str) -> Result<Shortcut, String> {
@@ -134,7 +134,7 @@ fn on_released(app: &AppHandle) {
                 recorded.device_rate,
                 recorded.wav.len()
             );
-            dispatch_to_asr(app, recorded.wav);
+            dispatch_to_asr(app, recorded.wav, recorded.duration.as_secs_f64());
         }
         None => {
             // Released без активной записи — на всякий случай гасим индикатор.
@@ -146,7 +146,7 @@ fn on_released(app: &AppHandle) {
 
 /// Отправка записанного WAV на распознавание в фоновой задаче.
 /// Вставка текста — этап 5; здесь только лог/уведомление/состояние трея.
-fn dispatch_to_asr(app: &AppHandle, wav: Vec<u8>) {
+fn dispatch_to_asr(app: &AppHandle, wav: Vec<u8>, audio_sec: f64) {
     let s = settings::load_settings(app);
     if let Err(reason) = should_transcribe(&s) {
         log::warn!("[asr] skipped: {reason}");
@@ -171,6 +171,7 @@ fn dispatch_to_asr(app: &AppHandle, wav: Vec<u8>) {
                 if typer::should_insert(&text) {
                     let delay = s.insert_delay_ms;
                     let chars = text.chars().count();
+                    let words = stats::count_words(&text);
                     let app_t = app.clone();
                     match tauri::async_runtime::spawn_blocking(move || {
                         typer::insert_text(&text, delay)
@@ -178,7 +179,12 @@ fn dispatch_to_asr(app: &AppHandle, wav: Vec<u8>) {
                     .await
                     {
                         Ok(Ok(())) => {
-                            log::info!("[typer] inserted {chars} chars (delay {delay} ms)")
+                            log::info!("[typer] inserted {chars} chars (delay {delay} ms)");
+                            if s.stats_enabled {
+                                let day =
+                                    stats::record_dictation(&app_t, words, chars as u64, audio_sec);
+                                tray::set_stats_tooltip(&app_t, day.words);
+                            }
                         }
                         Ok(Err(e)) => {
                             log::error!("[typer] failed: {e}");

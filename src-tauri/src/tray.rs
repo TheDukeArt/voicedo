@@ -60,6 +60,33 @@ pub fn set_tray_state(app: &AppHandle, state: TrayState) {
     log::info!("[tray] state -> {state:?}");
 }
 
+/// Тултип с сегодняшней статистикой — после успешной диктовки.
+pub fn set_stats_tooltip(app: &AppHandle, words_today: u64) {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        return;
+    };
+    if let Err(e) = tray.set_tooltip(Some(&format!(
+        "VoiceDo — сегодня: {}",
+        plural_words(words_today)
+    ))) {
+        log::error!("[tray] set_tooltip failed: {e}");
+    }
+}
+
+/// Русская плюрализация: 1 слово, 2 слова, 5 слов.
+fn plural_words(n: u64) -> String {
+    let m10 = n % 10;
+    let m100 = n % 100;
+    let word = if m10 == 1 && m100 != 11 {
+        "слово"
+    } else if (2..=4).contains(&m10) && !(12..=14).contains(&m100) {
+        "слова"
+    } else {
+        "слов"
+    };
+    format!("{n} {word}")
+}
+
 pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let show_item = MenuItem::with_id(app, SHOW_ID, "Показать настройки", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, QUIT_ID, "Выход", true, None::<&str>)?;
@@ -110,4 +137,21 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .build(app)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::plural_words;
+
+    #[test]
+    fn pluralization_cases() {
+        assert_eq!(plural_words(1), "1 слово");
+        assert_eq!(plural_words(2), "2 слова");
+        assert_eq!(plural_words(5), "5 слов");
+        assert_eq!(plural_words(11), "11 слов");
+        assert_eq!(plural_words(21), "21 слово");
+        assert_eq!(plural_words(112), "112 слов");
+        assert_eq!(plural_words(1234), "1234 слова");
+        assert_eq!(plural_words(0), "0 слов");
+    }
 }
