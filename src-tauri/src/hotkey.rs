@@ -5,12 +5,16 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_notification::NotificationExt;
 
-use crate::{asr, error_msg, recorder, settings, stats, tray, typer};
+use crate::{asr, error_msg, l10n, recorder, settings, stats, tray, typer};
 
 /// Разбор строки хоткея из настроек (вид «Cmd+Shift+Space») в Shortcut.
 pub fn parse_hotkey(value: &str) -> Result<Shortcut, String> {
-    Shortcut::from_str(value.trim())
-        .map_err(|e| format!("Не удалось разобрать хоткей «{value}»: {e}"))
+    Shortcut::from_str(value.trim()).map_err(|e| {
+        l10n::t(
+            "notify.hotkey.parse",
+            &[("hotkey", value), ("error", &e.to_string())],
+        )
+    })
 }
 
 /// Нормализованное представление уже зарегистрированного хоткея (для проверки
@@ -32,17 +36,15 @@ pub fn startup_hotkey(stored: &str, os_default: &str) -> (Option<String>, Option
     if parse_hotkey(os_default).is_ok() {
         (
             Some(os_default.to_string()),
-            Some(format!(
-                "Хоткей в настройках некорректен — используется «{os_default}», исправьте в окне настроек"
+            Some(l10n::t(
+                "notify.hotkey.startup_invalid",
+                &[("hotkey", os_default)],
             )),
         )
     } else {
         (
             None,
-            Some(
-                "Хоткей в настройках некорректен и системный дефолт не парсится — автозапись отключена"
-                    .to_string(),
-            ),
+            Some(l10n::t("notify.hotkey.startup_none", &[])),
         )
     }
 }
@@ -81,8 +83,9 @@ pub fn apply_hotkey(app: &AppHandle, value: &str) -> Result<(), String> {
             if let (Ok(mut g), Some(p)) = (REGISTERED.lock(), prev) {
                 *g = Some(p);
             }
-            Err(format!(
-                "Не удалось зарегистрировать хоткей «{value}» — вероятно, сочетание занято другим приложением: {e}"
+            Err(l10n::t(
+                "notify.hotkey.register_failed",
+                &[("hotkey", value), ("error", &e.to_string())],
             ))
         }
     }
@@ -110,7 +113,7 @@ fn on_pressed(app: &AppHandle) {
 
 /// Предпроверка настроек перед отправкой в ASR (чистая функция, для тестов).
 /// Google — бесплатный неофициальный API: эндпоинт и токен не нужны.
-pub fn should_transcribe(s: &settings::Settings) -> Result<(), &'static str> {
+pub fn should_transcribe(s: &settings::Settings) -> Result<(), String> {
     if matches!(
         asr::Provider::from_str(&s.provider).unwrap_or_default(),
         asr::Provider::Google
@@ -118,7 +121,7 @@ pub fn should_transcribe(s: &settings::Settings) -> Result<(), &'static str> {
         return Ok(());
     }
     if s.endpoint.trim().is_empty() || s.token.trim().is_empty() {
-        return Err("Настройки ASR не заполнены — укажите эндпоинт и токен в окне настроек");
+        return Err(l10n::t("notify.settings_incomplete", &[]));
     }
     Ok(())
 }
@@ -151,7 +154,7 @@ fn dispatch_to_asr(app: &AppHandle, wav: Vec<u8>, audio_sec: f64) {
     if let Err(reason) = should_transcribe(&s) {
         log::warn!("[asr] skipped: {reason}");
         tray::set_tray_state(app, tray::TrayState::Ready);
-        notify(app, reason);
+        notify(app, &reason);
         return;
     }
     tray::set_tray_state(app, tray::TrayState::Processing);
@@ -188,7 +191,10 @@ fn dispatch_to_asr(app: &AppHandle, wav: Vec<u8>, audio_sec: f64) {
                         }
                         Ok(Err(e)) => {
                             log::error!("[typer] failed: {e}");
-                            notify(&app_t, &format!("Не удалось вставить текст: {e}"));
+                            notify(
+                                &app_t,
+                                &l10n::t("notify.typer.insert_failed", &[("error", &e)]),
+                            );
                         }
                         Err(e) => log::error!("[typer] spawn_blocking failed: {e}"),
                     }
@@ -197,8 +203,8 @@ fn dispatch_to_asr(app: &AppHandle, wav: Vec<u8>, audio_sec: f64) {
             Err(e) => {
                 log::error!("[asr] error: {e}");
                 let msg = match e {
-                    asr::AsrError::NoSpeech => "Речь не распознана — в записи тишина".to_string(),
-                    other => format!("Распознавание не удалось: {other}"),
+                    asr::AsrError::NoSpeech => l10n::t("notify.asr.no_speech", &[]),
+                    other => l10n::t("notify.asr.failed", &[("error", &other.to_string())]),
                 };
                 notify(&app, &msg);
             }
@@ -276,7 +282,12 @@ mod tests {
         let (reg, warning) = startup_hotkey("Shift+", "Cmd+Shift+Space");
         assert_eq!(reg.as_deref(), Some("Cmd+Shift+Space"));
         let w = warning.expect("should warn");
-        assert!(w.contains("некорректен"), "{w}");
+        // совпадает с переводом в активной локали (en/ru — на случай изменения глобальной локали)
+        assert!(
+            w == l10n::t_in("en", "notify.hotkey.startup_invalid", &[("hotkey", "Cmd+Shift+Space")])
+                || w == l10n::t_in("ru", "notify.hotkey.startup_invalid", &[("hotkey", "Cmd+Shift+Space")]),
+            "{w}"
+        );
         assert!(w.contains("Cmd+Shift+Space"), "{w}");
     }
 
@@ -284,7 +295,12 @@ mod tests {
     fn startup_without_any_valid_hotkey_disables_recording() {
         let (reg, warning) = startup_hotkey("Shift+", "");
         assert!(reg.is_none());
-        assert!(warning.expect("should warn").contains("автозапись отключена"));
+        let w = warning.expect("should warn");
+        assert!(
+            w == l10n::t_in("en", "notify.hotkey.startup_none", &[])
+                || w == l10n::t_in("ru", "notify.hotkey.startup_none", &[]),
+            "{w}"
+        );
     }
 
     fn settings_with(endpoint: &str, token: &str) -> settings::Settings {
@@ -315,6 +331,10 @@ mod tests {
     #[test]
     fn should_transcribe_error_message_is_user_facing() {
         let err = should_transcribe(&settings_with("", "")).unwrap_err();
-        assert!(err.contains("Настройки ASR не заполнены"), "{err}");
+        assert!(
+            err == l10n::t_in("en", "notify.settings_incomplete", &[])
+                || err == l10n::t_in("ru", "notify.settings_incomplete", &[]),
+            "{err}"
+        );
     }
 }

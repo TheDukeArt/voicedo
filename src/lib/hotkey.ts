@@ -16,18 +16,19 @@ export const HK_MODIFIERS = new Set([
   'CMDORCONTROL',
 ]);
 
+// Возвращает ключ каталога i18n ('' — валиден); текст — t(key) на странице.
 export function validateHotkey(value: string): string {
   const v = value.trim();
-  if (!v) return 'Укажите сочетание, например Cmd+Shift+Space';
+  if (!v) return 'ui.validation.hotkey_empty';
   const tokens = v.split('+').map((t) => t.trim());
-  if (tokens.some((t) => !t)) return 'Лишний «+» или пустая часть — формат: Cmd+Shift+Space';
+  if (tokens.some((t) => !t)) return 'ui.validation.hotkey_plus';
   const up = tokens.map((t) => t.toUpperCase());
   const mods = up.filter((t) => HK_MODIFIERS.has(t));
   const keys = up.filter((t) => !HK_MODIFIERS.has(t));
-  if (mods.length === 0) return 'Добавьте модификаторы, например Cmd+Shift+Space';
-  if (keys.length === 0) return 'Добавьте обычную клавишу, например Space или F12';
-  if (keys.length > 1) return 'Только одна обычная клавиша, модификаторы — перед ней';
-  if (up[up.length - 1] !== keys[0]) return 'Модификаторы должны идти перед клавишей: Cmd+Shift+Space';
+  if (mods.length === 0) return 'ui.validation.hotkey_mods';
+  if (keys.length === 0) return 'ui.validation.hotkey_key';
+  if (keys.length > 1) return 'ui.validation.hotkey_one_key';
+  if (up[up.length - 1] !== keys[0]) return 'ui.validation.hotkey_order';
   return '';
 }
 

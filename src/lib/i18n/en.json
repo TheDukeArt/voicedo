@@ -1,0 +1,223 @@
+{
+  "ui": {
+    "section": {
+      "connect": "Connection",
+      "input": "Input",
+      "autostart": "Autostart",
+      "check": "Check",
+      "stats": "Statistics"
+    },
+    "saved": "Saved",
+    "theme": {
+      "aria": "Theme",
+      "system": "System theme",
+      "light": "Light theme",
+      "dark": "Dark theme"
+    },
+    "locale": {
+      "label": "Interface language",
+      "auto": "Auto (system)"
+    },
+    "lang": {
+      "auto": "Auto-detect",
+      "ru": "Русский",
+      "en": "English",
+      "es": "Español",
+      "fr": "Français",
+      "de": "Deutsch",
+      "it": "Italiano",
+      "pt": "Português",
+      "pl": "Polski",
+      "tr": "Türkçe",
+      "uk": "Українська",
+      "zh": "中文",
+      "ja": "日本語"
+    },
+    "error": {
+      "load_settings": "Failed to load settings: {error}",
+      "save_settings": "Failed to save settings: {error}"
+    },
+    "provider": {
+      "openai": {
+        "title": "OpenAI-compatible",
+        "desc": "Whisper and any /v1-compatible servers",
+        "badge": "API key"
+      },
+      "qwen": {
+        "title": "Qwen (DashScope)",
+        "desc": "Multimodal ASR by Alibaba Cloud",
+        "badge": "API key"
+      },
+      "google": {
+        "title": "Google",
+        "desc": "Hidden Chrome API · no key · ≤15 s",
+        "badge": "free, off the record"
+      },
+      "hint_qwen": "Qwen (DashScope): language is not sent yet — the selection is ignored",
+      "hint_google_auto": "Google: with \"auto-detect\" it actually sends en-US"
+    },
+    "google": {
+      "hint": "Google: up to ~15 s per recording, no key; it may stop working at any time. ",
+      "auto_hint": "Language \"auto\" will actually send en-US."
+    },
+    "language": {
+      "label": "Language"
+    },
+    "advanced": "Advanced",
+    "endpoint": {
+      "label": "Endpoint",
+      "ph_none": "not required"
+    },
+    "token": {
+      "label": "Token",
+      "ph_none": "not required (no key)",
+      "show": "Show token",
+      "hide": "Hide token"
+    },
+    "model": {
+      "label": "Model"
+    },
+    "check": {
+      "button": "Test connection",
+      "testing": "Checking…",
+      "success": "Success: {ms} ms"
+    },
+    "validation": {
+      "endpoint_url": "Invalid URL — enter the full address, e.g. https://api.openai.com/v1",
+      "endpoint_protocol": "The address must start with http:// or https://",
+      "hotkey_empty": "Specify a combination, e.g. Cmd+Shift+Space",
+      "hotkey_plus": "Extra \"+\" or an empty part — format: Cmd+Shift+Space",
+      "hotkey_mods": "Add modifiers, e.g. Cmd+Shift+Space",
+      "hotkey_key": "Add a regular key, e.g. Space or F12",
+      "hotkey_one_key": "Only one regular key; modifiers go before it",
+      "hotkey_order": "Modifiers must come before the key: Cmd+Shift+Space"
+    },
+    "mic": {
+      "label": "Microphone",
+      "system_default": "System default",
+      "default_suffix": " (default)",
+      "refresh": "Refresh device list",
+      "list_error": "Device list unavailable: {error}",
+      "device_missing": "⚠ The selected device is not found right now — recording won't start until it returns or another device is chosen."
+    },
+    "hotkey": {
+      "label": "Hotkey (hold to record)",
+      "aria": "Hotkey",
+      "hint": "Click — set, Backspace — reset to {hotkey}, Esc — cancel.",
+      "prompt": "Press a combination… (Esc — cancel)",
+      "set_prompt": "Click to set"
+    },
+    "delay": {
+      "label": "Delay before insert",
+      "unit": "ms"
+    },
+    "autostart": {
+      "title": "Launch at login",
+      "hint": "VoiceDo will be available via hotkey right after macOS starts up."
+    },
+    "stats": {
+      "switch_title": "Keep dictation statistics",
+      "switch_hint": "All data is stored on this device only.",
+      "off": "Statistics are off — new dictations are not counted.",
+      "load_error": "Failed to load statistics: {error}",
+      "saved_caption": "of typing saved today",
+      "saved_total": "total ≈ {time}",
+      "words_today": "words today",
+      "week": "last 7 days",
+      "lifetime": "total",
+      "streak": "days in a row",
+      "chart_title": "Words over 14 days",
+      "chart_aria": "Words in the last 14 days",
+      "record": "best: {n}",
+      "today": "today",
+      "bar_title": "{date}: {words}",
+      "wpm_label": "Your typing speed (for the savings estimate)",
+      "wpm_unit": "words/min",
+      "wpm_hint": "Average typing speed is about 40 words/min.",
+      "today_line": "Dictations today: {sessions} · dictated audio: {minutes} min"
+    },
+    "time": {
+      "hour": "h",
+      "min": "min"
+    },
+    "loading": "Loading…",
+    "mitest": {
+      "aria": "Dictation test recording",
+      "recognizing": "Recognizing…",
+      "hold": "Hold and speak",
+      "seconds_unit": "s",
+      "empty": "(empty)",
+      "unknown_error": "Unknown error",
+      "hint": "Click — toggle, hold — while you hold. No text is inserted."
+    }
+  },
+  "tray": {
+    "state": {
+      "recording": "Recording…",
+      "processing": "Recognizing…"
+    },
+    "menu": {
+      "show": "Show Settings",
+      "quit": "Quit",
+      "debug_clear": "Debug: clear indicator"
+    },
+    "stats_tooltip": "VoiceDo — {today}: {words}",
+    "today": "today",
+    "words": {
+      "one": "word",
+      "few": "words",
+      "many": "words",
+      "other": "words"
+    }
+  },
+  "notify": {
+    "mic": {
+      "no_device": "Microphone not found — make sure the input device is connected and allowed (macOS: Settings → Privacy & Security → Microphone)",
+      "device_gone": "Selected microphone \"{name}\" not found — choose another device in VoiceDo settings",
+      "stream": "Failed to open the recording stream: {error}",
+      "sample_format": "Unsupported device sample format: {format}",
+      "unsupported_format": "Microphone ({format}): unsupported format — choose another input device in VoiceDo settings (Input section)",
+      "denied": "No microphone access — allow it: System Settings → Privacy & Security → Microphone (then restart VoiceDo)",
+      "busy": "Microphone is busy with another app — close it and try again",
+      "unavailable": "Microphone unavailable — check that the device is connected and selected (System Settings → Sound)",
+      "start_failed": "Failed to start recording: {error}"
+    },
+    "hotkey": {
+      "parse": "Failed to parse hotkey \"{hotkey}\": {error}",
+      "startup_invalid": "The hotkey in settings is invalid — using \"{hotkey}\", please fix it in the settings window",
+      "startup_none": "The hotkey in settings is invalid and the system default fails to parse — auto-recording is disabled",
+      "register_failed": "Failed to register hotkey \"{hotkey}\" — the combination is probably taken by another app: {error}"
+    },
+    "settings_incomplete": "ASR settings are not filled in — set the endpoint and token in the settings window",
+    "asr": {
+      "no_speech": "Speech not recognized — the recording is silent",
+      "failed": "Recognition failed: {error}"
+    },
+    "typer": {
+      "insert_failed": "Failed to insert text: {error}",
+      "access_denied": "No Accessibility permission — macOS: System Settings → Privacy & Security → Accessibility (add VoiceDo)",
+      "input_denied": "No keyboard input access (macOS: Privacy & Security → Accessibility): {error}",
+      "text_failed": "Failed to type text: {error}"
+    },
+    "autostart_failed": "Failed to change autostart: {error}",
+    "test": {
+      "hotkey_busy": "Hotkey recording in progress — wait for it to finish",
+      "not_running": "Test recording is not running",
+      "record_failed": "Recording failed"
+    }
+  },
+  "err": {
+    "unauthorized": "401/403: {hint}",
+    "auth_token": "authorization error — check the token in settings",
+    "auth_google": "Google rejected the request (unofficial rate-limited API) — try again later or switch provider",
+    "not_found": "404: endpoint not found — check the API address",
+    "server": "Server error (HTTP {status}): {body}",
+    "no_speech_test": "The server is reachable, but the test audio contains no speech",
+    "network": "Network unavailable — the request could not be sent",
+    "timeout": "Request timeout exceeded (60 s)",
+    "bad_response": "Malformed server response — {hint}",
+    "invalid_endpoint": "Invalid endpoint address",
+    "too_long": "the unofficial Google API supports recordings up to ~15 s — shorten your dictation",
+    "test_no_speech_ok": "(endpoint responds, no speech detected — this is normal for a silence test)"
+  }
+}

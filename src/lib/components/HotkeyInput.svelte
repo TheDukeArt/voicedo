@@ -1,5 +1,6 @@
 <script lang="ts">
   import { buildHotkey, hotkeyChips, keyName, OS_DEFAULT_HOTKEY } from '$lib/hotkey';
+  import { t } from '$lib/i18n/index.svelte';
 
   let { value = $bindable() }: { value?: string } = $props();
 
@@ -73,7 +74,7 @@
   class="hk {phase}"
   role="button"
   tabindex="0"
-  aria-label="Хоткей"
+  aria-label={t('ui.hotkey.aria')}
   onclick={phase === 'display' ? startRecording : undefined}
   onkeydown={onKeyDown}
   onblur={() => phase === 'recording' && cancel()}
@@ -86,7 +87,7 @@
         {/each}
       </span>
     {:else}
-      <span class="prompt">Нажмите сочетание… (Esc — отмена)</span>
+      <span class="prompt">{t('ui.hotkey.prompt')}</span>
     {/if}
   {:else if value}
     <span class="chips">
@@ -95,7 +96,7 @@
       {/each}
     </span>
   {:else}
-    <span class="prompt">Нажмите, чтобы задать</span>
+    <span class="prompt">{t('ui.hotkey.set_prompt')}</span>
   {/if}
 </div>
 

@@ -20,9 +20,9 @@ const GOOGLE_SPEECH_API_URL: &str = "https://www.google.com/speech-api/v2/recogn
 const GOOGLE_PUBLIC_API_KEY: &str = "AIzaSyBOti4mM-6x9WDnZIjIeyEU21OpBXqWBgw";
 /// Лимит длительности запроса ~15 с; проверяем с запасом.
 const GOOGLE_MAX_DURATION_SECS: f64 = 14.5;
-const AUTH_HINT_TOKEN: &str = "ошибка авторизации — проверьте токен в настройках";
-const AUTH_HINT_GOOGLE: &str = "Google отклонил запрос (неофициальный лимитный API) — \
-                                 попробуйте позже или смените провайдера";
+/// Хинты 401/403 — ключи каталога (`l10n`), не сам текст.
+const AUTH_HINT_TOKEN: &str = "err.auth_token";
+const AUTH_HINT_GOOGLE: &str = "err.auth_google";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Provider {
@@ -103,26 +103,31 @@ fn no_speech_in_json(value: &serde_json::Value) -> bool {
 
 impl fmt::Display for AsrError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use crate::l10n;
         let msg = match self {
-            AsrError::Unauthorized(hint) => {
-                return write!(f, "401/403: {hint}")
+            AsrError::Unauthorized(hint_key) => {
+                let hint = l10n::t(hint_key, &[]);
+                return write!(f, "{}", l10n::t("err.unauthorized", &[("hint", &hint)]));
             }
-            AsrError::NotFound => "404: эндпоинт не найден — проверьте адрес API",
+            AsrError::NotFound => l10n::t("err.not_found", &[]),
             AsrError::Server(code, body) => {
-                return write!(f, "Ошибка сервера (HTTP {code}): {body}")
+                return write!(
+                    f,
+                    "{}",
+                    l10n::t("err.server", &[("status", &code.to_string()), ("body", body)])
+                )
             }
-            AsrError::NoSpeech => "Сервер доступен, но в тестовом аудио нет речи",
-            AsrError::Network => "Сеть недоступна — не удалось выполнить запрос",
-            AsrError::Timeout => "Превышен таймаут запроса (60 с)",
+            AsrError::NoSpeech => l10n::t("err.no_speech_test", &[]),
+            AsrError::Network => l10n::t("err.network", &[]),
+            AsrError::Timeout => l10n::t("err.timeout", &[]),
             AsrError::BadResponse(hint) => {
-                return write!(f, "Некорректный ответ сервера — {hint}")
+                // hint — внутренняя техническая подсказка (может быть непереведена)
+                return write!(f, "{}", l10n::t("err.bad_response", &[("hint", hint)]));
             }
-            AsrError::InvalidEndpoint => "Некорректный адрес эндпоинта",
-            AsrError::TooLong => {
-                "неофициальный Google API поддерживает записи до ~15 с — сократите диктовку"
-            }
+            AsrError::InvalidEndpoint => l10n::t("err.invalid_endpoint", &[]),
+            AsrError::TooLong => l10n::t("err.too_long", &[]),
         };
-        f.write_str(msg)
+        f.write_str(&msg)
     }
 }
 
@@ -540,9 +545,7 @@ pub async fn test_connection(app: AppHandle) -> TestResult {
         // Для теста тишиной «речь не обнаружена» — признак валидности ключа/эндпоинта/модели
         Err(AsrError::NoSpeech) => TestResult {
             ok: true,
-            text: Some(
-                "(эндпоинт отвечает, речь не обнаружена — это нормально для теста тишиной)".to_string(),
-            ),
+            text: Some(crate::l10n::t("err.test_no_speech_ok", &[])),
             latency_ms: started.elapsed().as_millis() as u64,
             error: None,
         },
@@ -690,7 +693,15 @@ mod tests {
             .await
             .expect_err("should fail");
         assert!(matches!(err, AsrError::Unauthorized(_)));
-        assert!(err.to_string().contains("авторизации"));
+        let s = err.to_string();
+        let expected = |loc: &str| {
+            crate::l10n::t_in(
+                loc,
+                "err.unauthorized",
+                &[("hint", &crate::l10n::t_in(loc, AUTH_HINT_TOKEN, &[]))],
+            )
+        };
+        assert!(s == expected("en") || s == expected("ru"), "{s}");
     }
 
     #[test]
@@ -702,13 +713,27 @@ mod tests {
         assert_eq!(Provider::from_str("что-то").unwrap(), Provider::OpenAi);
     }
 
+    /// Равно переводу ключа в любой из двух каталогов (глобальная локаль в
+    /// тестах — "en", но матчим обе на всякий случай).
+    fn matches_any_locale(msg: &str, key: &str, params: &[(&str, &str)]) -> bool {
+        msg == crate::l10n::t_in("en", key, params)
+            || msg == crate::l10n::t_in("ru", key, params)
+    }
+
     #[test]
     fn server_error_display_includes_body_snippet() {
         let long = "x".repeat(500);
-        let err = AsrError::Server(500, body_snippet(&long));
+        let snippet = body_snippet(&long);
+        let err = AsrError::Server(500, snippet.clone());
         let s = err.to_string();
-        assert!(s.starts_with("Ошибка сервера (HTTP 500): xxx"));
+        assert!(s.contains("HTTP 500"), "{s}");
+        assert!(s.contains("xxx"), "{s}");
         assert!(s.ends_with('…'));
+        assert!(matches_any_locale(
+            &s,
+            "err.server",
+            &[("status", "500"), ("body", &snippet)]
+        ));
         assert!(s.chars().count() < 250);
     }
 
@@ -822,10 +847,7 @@ mod tests {
             .await
             .expect_err("silence should error");
         assert!(matches!(err, AsrError::NoSpeech));
-        assert_eq!(
-            err.to_string(),
-            "Сервер доступен, но в тестовом аудио нет речи"
-        );
+        assert!(matches_any_locale(err.to_string().as_str(), "err.no_speech_test", &[]));
     }
 
     #[tokio::test]
@@ -844,7 +866,11 @@ mod tests {
         match err {
             AsrError::Server(400, ref body) => {
                 assert!(body.contains("BadRequest"));
-                assert!(err.to_string().starts_with("Ошибка сервера (HTTP 400):"));
+                assert!(matches_any_locale(
+                    err.to_string().as_str(),
+                    "err.server",
+                    &[("status", "400"), ("body", body)]
+                ));
             }
             other => panic!("expected Server(400), got {other:?}"),
         }
@@ -916,12 +942,18 @@ mod tests {
 
     #[test]
     fn google_unauthorized_hint_mentions_api() {
-        let s = AsrError::Unauthorized(AUTH_HINT_GOOGLE).to_string();
-        assert!(s.contains("неофициальный лимитный API"), "{s}");
-        // прежнее сообщение для OpenAI/Qwen не изменилось по смыслу
-        assert!(AsrError::Unauthorized(AUTH_HINT_TOKEN)
-            .to_string()
-            .contains("авторизации"));
+        let google = AsrError::Unauthorized(AUTH_HINT_GOOGLE).to_string();
+        let expected = |loc: &str| {
+            crate::l10n::t_in(
+                loc,
+                "err.unauthorized",
+                &[("hint", &crate::l10n::t_in(loc, AUTH_HINT_GOOGLE, &[]))],
+            )
+        };
+        assert!(google == expected("en") || google == expected("ru"), "{google}");
+        // сообщение для OpenAI/Qwen отличается от google-хинта
+        let token = AsrError::Unauthorized(AUTH_HINT_TOKEN).to_string();
+        assert_ne!(token, google);
     }
 
     #[test]
@@ -974,7 +1006,7 @@ mod tests {
             .await
             .expect_err("16 s must be rejected");
         assert!(matches!(err, AsrError::TooLong));
-        assert!(err.to_string().contains("до ~15 с"), "{err}");
+        assert!(matches_any_locale(err.to_string().as_str(), "err.too_long", &[]), "{err}");
     }
 
     #[test]

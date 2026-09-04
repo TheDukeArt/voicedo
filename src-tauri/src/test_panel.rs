@@ -9,7 +9,7 @@ use std::time::Instant;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::{asr, error_msg, hotkey, recorder, settings, tray};
+use crate::{asr, error_msg, hotkey, l10n, recorder, settings, tray};
 
 pub const DICTATION_TEST_EVENT: &str = "dictation-test-result";
 
@@ -59,7 +59,7 @@ pub fn start_test_dictation(
     let rec = app.state::<recorder::Recorder>();
     let panel_own = panel.recording.load(Ordering::SeqCst);
     if rec.is_recording() && !panel_own {
-        return Err("Идёт запись с хоткея — дождитесь её окончания".to_string());
+        return Err(l10n::t("notify.test.hotkey_busy", &[]));
     }
     if panel_own {
         // Перезапуск теста: предыдущий результат будет отброшен по seq.
@@ -83,7 +83,7 @@ pub fn start_test_dictation(
 #[tauri::command]
 pub fn stop_test_dictation(app: AppHandle, panel: State<'_, TestPanel>) -> Result<(), String> {
     if !panel.recording.swap(false, Ordering::SeqCst) {
-        return Err("Тестовая запись не идёт".to_string());
+        return Err(l10n::t("notify.test.not_running", &[]));
     }
     let seq = panel.current_seq();
     let rec = app.state::<recorder::Recorder>();
@@ -93,7 +93,7 @@ pub fn stop_test_dictation(app: AppHandle, panel: State<'_, TestPanel>) -> Resul
             seq,
             ok: false,
             text: None,
-            error: Some("Запись не удалась".to_string()),
+            error: Some(l10n::t("notify.test.record_failed", &[])),
             latency_ms: 0,
         });
         return Ok(());
@@ -106,7 +106,7 @@ pub fn stop_test_dictation(app: AppHandle, panel: State<'_, TestPanel>) -> Resul
     let s = settings::load_settings(&app);
     if let Err(reason) = hotkey::should_transcribe(&s) {
         tray::set_tray_state(&app, tray::TrayState::Ready);
-        emit(&app, DictationResult { seq, ok: false, text: None, error: Some(reason.to_string()), latency_ms: 0 });
+        emit(&app, DictationResult { seq, ok: false, text: None, error: Some(reason), latency_ms: 0 });
         return Ok(());
     }
     tray::set_tray_state(&app, tray::TrayState::Processing);
@@ -126,8 +126,8 @@ pub fn stop_test_dictation(app: AppHandle, panel: State<'_, TestPanel>) -> Resul
             Err(e) => {
                 log::error!("[test-panel] error (seq {seq}): {e}");
                 let msg = match e {
-                    asr::AsrError::NoSpeech => "Речь не распознана — в записи тишина".to_string(),
-                    other => format!("Распознавание не удалось: {other}"),
+                    asr::AsrError::NoSpeech => l10n::t("notify.asr.no_speech", &[]),
+                    other => l10n::t("notify.asr.failed", &[("error", &other.to_string())]),
                 };
                 DictationResult { seq, ok: false, text: None, error: Some(msg), latency_ms }
             }

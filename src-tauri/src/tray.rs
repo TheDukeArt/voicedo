@@ -1,3 +1,5 @@
+use std::sync::Mutex;
+
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
@@ -5,6 +7,7 @@ use tauri::{
     AppHandle, Manager,
 };
 
+use crate::l10n;
 use crate::recorder::Recorder;
 
 pub const TRAY_ID: &str = "voicedo-main-tray";
@@ -45,11 +48,10 @@ pub fn set_tray_state(app: &AppHandle, state: TrayState) {
         log::error!("[tray] indicator: tray `{TRAY_ID}` not found");
         return;
     };
-    let (title, tooltip) = match state {
-        TrayState::Ready => ("", "VoiceDo"),
-        TrayState::Recording => ("●", "Идёт запись…"),
-        TrayState::Processing => ("…", "Распознаю…"),
-    };
+    if let Ok(mut g) = LAST_STATE.lock() {
+        *g = Some(state);
+    }
+    let (title, tooltip) = tray_labels(state);
     if let Err(e) = tray
         .set_title(Some(title))
         .and_then(|_| tray.set_tooltip(Some(tooltip)))
@@ -60,43 +62,93 @@ pub fn set_tray_state(app: &AppHandle, state: TrayState) {
     log::info!("[tray] state -> {state:?}");
 }
 
+fn last_state() -> Option<TrayState> {
+    LAST_STATE.lock().ok().and_then(|g| *g)
+}
+
+static LAST_STATE: Mutex<Option<TrayState>> = Mutex::new(None);
+
+fn tray_labels(state: TrayState) -> (&'static str, String) {
+    match state {
+        TrayState::Ready => ("", "VoiceDo".to_string()),
+        TrayState::Recording => ("●", l10n::t("tray.state.recording", &[])),
+        TrayState::Processing => ("…", l10n::t("tray.state.processing", &[])),
+    }
+}
+
+/// Обновить локализуемые тексты трея (меню и текущий тултип) после смены локали.
+/// Вызывать из рабочего потока (команда `save_settings`): `MenuItem::set_text`
+/// сам диспатчится в главный поток через `run_item_main_thread!`.
+pub fn refresh_texts(app: &AppHandle) {
+    let menu = TRAY_MENU.lock().ok().and_then(|g| g.clone());
+    if let Some(menu) = menu {
+        let refresh = |id: &str, key: &str| {
+            if let Some(item) = menu.get(id).and_then(|kind| kind.as_menuitem().cloned()) {
+                if let Err(e) = item.set_text(l10n::t(key, &[])) {
+                    log::error!("[tray] refresh item {id}: {e}");
+                }
+            }
+        };
+        refresh(SHOW_ID, "tray.menu.show");
+        refresh(QUIT_ID, "tray.menu.quit");
+        #[cfg(debug_assertions)]
+        refresh(DEBUG_CLEAR_ID, "tray.menu.debug_clear");
+    }
+    // Тултип: переставляем для текущего состояния (stats-тултип обновится после
+    // следующей успешной диктовки).
+    set_tray_state(app, last_state().unwrap_or(TrayState::Ready));
+}
+
 /// Тултип с сегодняшней статистикой — после успешной диктовки.
 pub fn set_stats_tooltip(app: &AppHandle, words_today: u64) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return;
     };
-    if let Err(e) = tray.set_tooltip(Some(&format!(
-        "VoiceDo — сегодня: {}",
-        plural_words(words_today)
-    ))) {
+    let tooltip = l10n::t(
+        "tray.stats_tooltip",
+        &[
+            ("today", &l10n::t("tray.today", &[])),
+            ("words", &l10n::plural("tray.words", words_today)),
+        ],
+    );
+    if let Err(e) = tray.set_tooltip(Some(&tooltip)) {
         log::error!("[tray] set_tooltip failed: {e}");
     }
 }
 
-/// Русская плюрализация: 1 слово, 2 слова, 5 слов.
-fn plural_words(n: u64) -> String {
-    let m10 = n % 10;
-    let m100 = n % 100;
-    let word = if m10 == 1 && m100 != 11 {
-        "слово"
-    } else if (2..=4).contains(&m10) && !(12..=14).contains(&m100) {
-        "слова"
-    } else {
-        "слов"
-    };
-    format!("{n} {word}")
-}
+/// Меню трея держим для перестроения текстов при смене локали.
+static TRAY_MENU: Mutex<Option<Menu<tauri::Wry>>> = Mutex::new(None);
 
 pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let show_item = MenuItem::with_id(app, SHOW_ID, "Показать настройки", true, None::<&str>)?;
-    let quit_item = MenuItem::with_id(app, QUIT_ID, "Выход", true, None::<&str>)?;
+    let show_item = MenuItem::with_id(
+        app,
+        SHOW_ID,
+        l10n::t("tray.menu.show", &[]),
+        true,
+        None::<&str>,
+    )?;
+    let quit_item = MenuItem::with_id(
+        app,
+        QUIT_ID,
+        l10n::t("tray.menu.quit", &[]),
+        true,
+        None::<&str>,
+    )?;
     #[cfg(debug_assertions)]
-    let debug_clear_item =
-        MenuItem::with_id(app, DEBUG_CLEAR_ID, "Отладка: снять индикатор", true, None::<&str>)?;
+    let debug_clear_item = MenuItem::with_id(
+        app,
+        DEBUG_CLEAR_ID,
+        l10n::t("tray.menu.debug_clear", &[]),
+        true,
+        None::<&str>,
+    )?;
     #[cfg(debug_assertions)]
     let menu = Menu::with_items(app, &[&show_item, &debug_clear_item, &quit_item])?;
     #[cfg(not(debug_assertions))]
     let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+    if let Ok(mut g) = TRAY_MENU.lock() {
+        *g = Some(menu.clone());
+    }
 
     // Фирменный глиф-волна: на macOS — template (чёрный+альфа), система сама
     // инвертирует его для тёмной темы меню-бара. На Windows template не
@@ -141,17 +193,17 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::plural_words;
+    use crate::l10n::plural_in;
 
     #[test]
-    fn pluralization_cases() {
-        assert_eq!(plural_words(1), "1 слово");
-        assert_eq!(plural_words(2), "2 слова");
-        assert_eq!(plural_words(5), "5 слов");
-        assert_eq!(plural_words(11), "11 слов");
-        assert_eq!(plural_words(21), "21 слово");
-        assert_eq!(plural_words(112), "112 слов");
-        assert_eq!(plural_words(1234), "1234 слова");
-        assert_eq!(plural_words(0), "0 слов");
+    fn stats_tooltip_ru_counts() {
+        assert_eq!(plural_in("ru", "tray.words", 1), "1 слово");
+        assert_eq!(plural_in("ru", "tray.words", 2), "2 слова");
+        assert_eq!(plural_in("ru", "tray.words", 5), "5 слов");
+        assert_eq!(plural_in("ru", "tray.words", 11), "11 слов");
+        assert_eq!(plural_in("ru", "tray.words", 21), "21 слово");
+        assert_eq!(plural_in("ru", "tray.words", 112), "112 слов");
+        assert_eq!(plural_in("ru", "tray.words", 1234), "1234 слова");
+        assert_eq!(plural_in("ru", "tray.words", 0), "0 слов");
     }
 }

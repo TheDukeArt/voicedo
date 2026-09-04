@@ -25,19 +25,16 @@ pub fn insert_text(text: &str, delay_ms: u64) -> Result<(), String> {
     // 6.2: без Accessibility enigo на актуальных macOS может «успешно» ничего не
     // вставить — проверяем явно, чтобы дать понятную ошибку вместо тишины.
     if !crate::accessibility::is_trusted() {
-        return Err(
-            "Нет разрешения Accessibility — macOS: Системные настройки → Конфиденциальность и защита → Специальные возможности (добавьте VoiceDo)"
-                .to_string(),
-        );
+        return Err(crate::l10n::t("notify.typer.access_denied", &[]));
     }
     let mut enigo = Enigo::new(&EnigoSettings::default()).map_err(|e| {
-        format!("Нет доступа к вводу с клавиатуры (macOS: Конфиденциальность и защита → Специальные возможности): {e}")
+        crate::l10n::t("notify.typer.input_denied", &[("error", &e.to_string())])
     })?;
     // text() использует раскладку, а для юникода (кириллица) fallback-ит на
     // посимвольный Unicode-ввод (Keyboard::text -> fast_text/посимвольно).
     enigo
         .text(text)
-        .map_err(|e| format!("Не удалось ввести текст: {e}"))
+        .map_err(|e| crate::l10n::t("notify.typer.text_failed", &[("error", &e.to_string())]))
 }
 
 #[cfg(test)]
