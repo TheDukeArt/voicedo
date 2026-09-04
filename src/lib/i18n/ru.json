@@ -218,6 +218,18 @@
     "bad_response": "Некорректный ответ сервера — {hint}",
     "invalid_endpoint": "Некорректный адрес эндпоинта",
     "too_long": "неофициальный Google API поддерживает записи до ~15 с — сократите диктовку",
-    "test_no_speech_ok": "(эндпоинт отвечает, речь не обнаружена — это нормально для теста тишиной)"
+    "test_no_speech_ok": "(эндпоинт отвечает, речь не обнаружена — это нормально для теста тишиной)",
+    "hint": {
+      "json_text_field": "ожидался JSON с полем \"text\"",
+      "json_output_text": "ожидался JSON с полями output.output.text",
+      "missing_text_field": "в ответе нет поля text",
+      "wav_header": "не удалось разобрать WAV-заголовок",
+      "wav_fmt_chunk": "в WAV нет чанка fmt",
+      "wav_pcm16_mono": "поддерживается только 16-битный моно PCM",
+      "wav_data_chunk": "в WAV нет чанка data",
+      "google_html_captcha": "получен HTML вместо JSON — вероятно, captcha или блокировка Google",
+      "ndjson_parse": "не удалось разобрать NDJSON-ответ",
+      "flac_empty": "FLAC-энкодер вернул пустой результат"
+    }
   }
 }

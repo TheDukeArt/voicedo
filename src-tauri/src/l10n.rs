@@ -2,8 +2,8 @@
 //! язык). Rust берёт `tray.*`, `err.*`, `notify.*`; `ui.*` — фронт.
 //! Плейсхолдеры `{name}` в стиле `format!`, подстановка — своя (не `format!`:
 //! ключ и язык неизвестны на этапе компиляции).
-//! Фолбэки: отсутствующий ключ или неизвестный язык (zh) → EN; при промахе в EN
-//! возвращается сам ключ.
+//! Фолбэки: пустое значение (скелет zh) или отсутствующий ключ → EN; при промахе
+//! в EN возвращается сам ключ.
 
 use std::sync::{OnceLock, RwLock};
 
@@ -11,13 +11,15 @@ use serde_json::Value;
 
 const EN_JSON: &str = include_str!("../../src/lib/i18n/en.json");
 const RU_JSON: &str = include_str!("../../src/lib/i18n/ru.json");
+const ZH_JSON: &str = include_str!("../../src/lib/i18n/zh.json");
 
-fn catalogs() -> &'static (Value, Value) {
-    static CATALOGS: OnceLock<(Value, Value)> = OnceLock::new();
+fn catalogs() -> &'static (Value, Value, Value) {
+    static CATALOGS: OnceLock<(Value, Value, Value)> = OnceLock::new();
     CATALOGS.get_or_init(|| {
         let en: Value = serde_json::from_str(EN_JSON).expect("en.json must be valid JSON");
         let ru: Value = serde_json::from_str(RU_JSON).expect("ru.json must be valid JSON");
-        (en, ru)
+        let zh: Value = serde_json::from_str(ZH_JSON).expect("zh.json must be valid JSON");
+        (en, ru, zh)
     })
 }
 
@@ -36,7 +38,7 @@ pub fn locale() -> String {
 
 /// Строка "auto" → конкретная локаль по системной локали (sys-locale:
 /// macOS — AppleLocale, вида "ru_RU"/"ru-RU"); прочее — "en", "zh" — "zh"
-/// (каталога пока нет, t() даёт EN-фолбэк).
+/// (каталог-скелет из пустых строк, t() даёт EN-фолбэк до появления перевода).
 pub fn resolve(setting: &str) -> String {
     match setting {
         "en" | "ru" | "zh" => setting.to_string(),
@@ -73,7 +75,11 @@ fn lookup<'a>(catalog: &'a Value, key: &str) -> Option<&'a str> {
     for part in key.split('.') {
         cur = cur.get(part)?;
     }
-    cur.as_str()
+    // Пустая строка (непереведённый скелет zh) = отсутствие значения → фолбэк EN.
+    match cur.as_str() {
+        Some(s) if !s.is_empty() => Some(s),
+        _ => None,
+    }
 }
 
 fn expand(raw: &str, params: &[(&str, &str)]) -> String {
@@ -90,8 +96,12 @@ pub fn t(key: &str, params: &[(&str, &str)]) -> String {
 }
 
 pub fn t_in(loc: &str, key: &str, params: &[(&str, &str)]) -> String {
-    let (en, ru) = catalogs();
-    let current = if loc == "ru" { ru } else { en };
+    let (en, ru, zh) = catalogs();
+    let current = match loc {
+        "ru" => ru,
+        "zh" => zh,
+        _ => en,
+    };
     let raw = lookup(current, key)
         .or_else(|| lookup(en, key))
         .unwrap_or(key);
@@ -125,12 +135,15 @@ pub fn plural_category(loc: &str, n: u64) -> &'static str {
 }
 
 /// Локализованное «{n} <форма слова>»: форма берётся из объекта
-/// `{key}.one/.few/.many/.other`; для zh — EN-фолбэк.
+/// `{key}.one/.few/.many/.other`; пустой скелет zh и промах — EN-фолбэк.
 pub fn plural_in(loc: &str, key: &str, n: u64) -> String {
-    let (en, ru) = catalogs();
-    let order: [&Value; 2] = if loc == "ru" { [ru, en] } else { [en, en] };
-    for (i, catalog) in order.iter().enumerate() {
-        let lang = if loc == "ru" && i == 0 { "ru" } else { "en" };
+    let (en, ru, zh) = catalogs();
+    let current = match loc {
+        "ru" => ru,
+        "zh" => zh,
+        _ => en,
+    };
+    for (catalog, lang) in [(current, loc), (en, "en")] {
         let cat = plural_category(lang, n);
         let form = lookup(catalog, &format!("{key}.{cat}"))
             .or_else(|| lookup(catalog, &format!("{key}.other")));
@@ -150,7 +163,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn both_catalogs_have_identical_key_sets() {
+    fn all_catalogs_have_identical_key_sets() {
         fn leaves(v: &Value, prefix: &str, out: &mut Vec<String>) {
             match v {
                 Value::Object(map) => {
@@ -161,19 +174,36 @@ mod tests {
                 _ => out.push(prefix.trim_end_matches('.').to_string()),
             }
         }
-        let (en, ru) = catalogs();
-        let (mut en_keys, mut ru_keys) = (Vec::new(), Vec::new());
+        let (en, ru, zh) = catalogs();
+        let (mut en_keys, mut ru_keys, mut zh_keys) = (Vec::new(), Vec::new(), Vec::new());
         leaves(en, "", &mut en_keys);
         leaves(ru, "", &mut ru_keys);
+        leaves(zh, "", &mut zh_keys);
         en_keys.sort();
         ru_keys.sort();
+        zh_keys.sort();
         assert_eq!(en_keys, ru_keys, "каталоги EN и RU должны совпадать по ключам");
-        assert!(en_keys.len() > 80, "каталог подозрительно мал: {}", en_keys.len());
+        assert_eq!(en_keys, zh_keys, "zh-скелет должен совпадать с EN по ключам");
+        assert_eq!(en_keys.len(), 161, "ожидалось 161 ключ, получено {}", en_keys.len());
+    }
+
+    #[test]
+    fn zh_skeleton_empty_values_fall_back_to_en() {
+        let (en, _, zh) = catalogs();
+        // скелет zh: ключ есть, значение "" → lookup отбрасывает пустое
+        assert!(lookup(zh, "tray.menu.quit").is_none());
+        assert_eq!(
+            t_in("zh", "tray.menu.quit", &[]),
+            lookup(en, "tray.menu.quit").unwrap(),
+            "пустой zh-перевод должен давать EN"
+        );
+        // отсутствующий везде ключ → сам ключ
+        assert_eq!(t_in("zh", "no.such.key.at.all", &[]), "no.such.key.at.all");
     }
 
     #[test]
     fn t_falls_back_to_en_for_missing_locale_and_key() {
-        // zh: каталога нет — всегда EN
+        // zh: скелет из пустых строк — всегда EN
         assert_eq!(t_in("zh", "tray.menu.quit", &[]), "Quit");
         // ru-ключа нет (такого нет, но проверим фолбэк на EN через несуществующий путь)
         assert_eq!(t_in("ru", "notify.nope.missing", &[]), "notify.nope.missing");
