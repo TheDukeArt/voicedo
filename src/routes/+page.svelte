@@ -3,7 +3,8 @@
   import { getVersion } from '@tauri-apps/api/app';
   import HotkeyInput from '$lib/components/HotkeyInput.svelte';
   import MicTest from '$lib/components/MicTest.svelte';
-  import { validateHotkey } from '$lib/hotkey';
+  import { validateHotkey, OS_DEFAULT_HOTKEY } from '$lib/hotkey';
+  import { t, formatInt, formatDecimal, tPlural } from '$lib/i18n/index.svelte';
 
   type Provider = 'openai' | 'qwen' | 'google';
   type Theme = 'system' | 'light' | 'dark';
@@ -22,6 +23,7 @@
     inputDevice: string;
     typingSpeedWpm: number;
     statsEnabled: boolean;
+    locale: string;
   };
 
   type InputDevice = { name: string; isDefault: boolean; formats: string[] };
@@ -45,28 +47,23 @@
   const QWEN_DEFAULT_MODEL = 'qwen-audio-3.0-asr-flash';
   const OPENAI_DEFAULT_MODEL = 'whisper-1';
 
-  const LANGUAGES: [string, string][] = [
-    ['', 'Автоопределение'],
-    ['ru', 'Русский'],
-    ['en', 'English'],
-    ['es', 'Español'],
-    ['fr', 'Français'],
-    ['de', 'Deutsch'],
-    ['it', 'Italiano'],
-    ['pt', 'Português'],
-    ['pl', 'Polski'],
-    ['tr', 'Türkçe'],
-    ['uk', 'Українська'],
-    ['zh', '中文'],
-    ['ja', '日本語'],
+  // Имена языков диктовки — ISO-названия, не переводятся (кроме «авто»);
+  // лежат в каталоге, чтобы в svelte-файлах не было литералов с кириллицей.
+  const LANGUAGE_CODES = ['', 'ru', 'en', 'es', 'fr', 'de', 'it', 'pt', 'pl', 'tr', 'uk', 'zh', 'ja'];
+
+  const SECTIONS: [Section, string][] = [
+    ['connect', '🔌'],
+    ['input', '⌨️'],
+    ['autostart', '🚀'],
+    ['check', '🎙'],
+    ['stats', '📈'],
   ];
 
-  const SECTIONS: [Section, string, string][] = [
-    ['connect', '🔌', 'Подключение'],
-    ['input', '⌨️', 'Ввод'],
-    ['autostart', '🚀', 'Автозапуск'],
-    ['check', '🎙', 'Проверка'],
-    ['stats', '📈', 'Статистика'],
+  const LOCALES: [string, string | null][] = [
+    ['auto', 'ui.locale.auto'],
+    ['en', null],
+    ['ru', null],
+    ['zh', null],
   ];
 
   let settings = $state<Settings>({
@@ -82,6 +79,7 @@
     inputDevice: '',
     typingSpeedWpm: 40,
     statsEnabled: true,
+    locale: 'auto',
   });
   let devices = $state<InputDevice[]>([]);
   let devicesError = $state('');
@@ -122,15 +120,12 @@
       .catch((e) => (statsError = String(e)));
   }
 
-  function fmtInt(n: number): string {
-    return n.toLocaleString('ru-RU');
-  }
-
   function fmtMinutes(m: number): string {
-    if (m < 60) return `${m} мин`;
+    const min = t('ui.time.min');
+    if (m < 60) return `${formatInt(m)} ${min}`;
     const h = Math.floor(m / 60);
     const mm = m % 60;
-    return mm ? `${h} ч ${mm} мин` : `${h} ч`;
+    return mm ? `${formatInt(h)} ${t('ui.time.hour')} ${formatInt(mm)} ${min}` : `${formatInt(h)} ${t('ui.time.hour')}`;
   }
 
   let chartMax = $derived(stats ? Math.max(1, ...stats.chart.map((p) => p.words)) : 1);
@@ -182,6 +177,7 @@
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
 
+  // Возвращает ключ каталога ('' — ОК), текст — t(key) в шаблоне.
   function validateEndpoint(value: string): string {
     const v = value.trim();
     if (!v) return '';
@@ -189,10 +185,10 @@
     try {
       url = new URL(v);
     } catch {
-      return 'Некорректный URL — укажите полный адрес, например https://api.openai.com/v1';
+      return 'ui.validation.endpoint_url';
     }
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      return 'Адрес должен начинаться с http:// или https://';
+      return 'ui.validation.endpoint_protocol';
     }
     return '';
   }
@@ -229,6 +225,7 @@
           inputDevice: s.inputDevice ?? '',
           typingSpeedWpm: s.typingSpeedWpm ?? 40,
           statsEnabled: s.statsEnabled ?? true,
+          locale: s.locale ?? 'auto',
         };
         loaded = true;
       })
@@ -254,6 +251,7 @@
       settings.inputDevice,
       settings.typingSpeedWpm,
       settings.statsEnabled,
+      settings.locale,
     ];
     if (endpointError || hotkeyError) return;
     const snapshot: Settings = { ...settings };
@@ -288,9 +286,9 @@
 
   const providerHint = $derived(
     settings.provider === 'qwen'
-      ? 'Qwen (DashScope): язык пока не передаётся — выбор игнорируется'
+      ? t('ui.provider.hint_qwen')
       : settings.provider === 'google' && settings.language === ''
-        ? 'Google: при «автоопределении» реально уйдёт en-US'
+        ? t('ui.provider.hint_google_auto')
         : '',
   );
 </script>
@@ -316,51 +314,55 @@
     </div>
 
     <nav>
-      {#each SECTIONS as [id, icon, name] (id)}
+      {#each SECTIONS as [id, icon] (id)}
         <button class="nav-item" class:active={active === id} onclick={() => (active = id)}>
           <span class="nav-icon">{icon}</span>
-          {name}
+          {t(`ui.section.${id}`)}
         </button>
       {/each}
     </nav>
 
     <div class="sidebar-foot">
-      <span class="saved" class:visible={saved}>Сохранено</span>
-      <div class="theme-seg" role="radiogroup" aria-label="Тема">
-        {#each [['system', '◐'], ['light', '☀'], ['dark', '☾']] as [t, glyph] (t)}
+      <span class="saved" class:visible={saved}>{t('ui.saved')}</span>
+      <div class="theme-seg" role="radiogroup" aria-label={t('ui.theme.aria')}>
+        {#each [['system', '◐'], ['light', '☀'], ['dark', '☾']] as [themeVal, glyph] (themeVal)}
           <button
             class="theme-btn"
-            class:active={settings.theme === t}
+            class:active={settings.theme === themeVal}
             role="radio"
-            aria-checked={settings.theme === t}
-            title={t === 'system' ? 'Системная тема' : t === 'light' ? 'Светлая тема' : 'Тёмная тема'}
-            onclick={() => (settings.theme = t as Theme)}
+            aria-checked={settings.theme === themeVal}
+            title={t(`ui.theme.${themeVal}`)}
+            onclick={() => (settings.theme = themeVal as Theme)}
           >
             {glyph}
           </button>
         {/each}
       </div>
+      <label class="locale-field">
+        <span class="locale-lbl">{t('ui.locale.label')}</span>
+        <select class="locale-select" bind:value={settings.locale}>
+          {#each LOCALES as [code, labelKey] (code)}
+            <option value={code}>{labelKey ? t(labelKey) : t(`ui.lang.${code}`)}</option>
+          {/each}
+        </select>
+      </label>
     </div>
   </aside>
 
   <main class="panel">
-    <h1>{SECTIONS.find(([id]) => id === active)?.[2]}</h1>
+    <h1>{t(`ui.section.${active}`)}</h1>
 
     {#if loadingError}
-      <p class="error">Не удалось загрузить настройки: {loadingError}</p>
+      <p class="error">{t('ui.error.load_settings', { error: loadingError })}</p>
     {/if}
     {#if saveError}
-      <p class="error">Не удалось сохранить настройки: {saveError}</p>
+      <p class="error">{t('ui.error.save_settings', { error: saveError })}</p>
     {/if}
 
     {#if active === 'connect'}
       <form class="stack" autocomplete="off" onsubmit={(e) => e.preventDefault()}>
         <div class="prov-grid">
-          {#each [
-            ['openai', 'OpenAI-совместимый', 'Whisper и любые /v1-совместимые серверы', 'API-ключ'],
-            ['qwen', 'Qwen (DashScope)', 'Мультимодальная ASR Alibaba Cloud', 'API-ключ'],
-            ['google', 'Google', 'Скрытый API Chrome · без ключа · ≤15 с', 'бесплатно, офф-рекорд'],
-          ] as [id, title, desc, badge] (id)}
+          {#each ['openai', 'qwen', 'google'] as id (id)}
             <label class="prov-card" class:selected={settings.provider === id}>
               <input
                 type="radio"
@@ -369,61 +371,60 @@
                 checked={settings.provider === id}
                 onchange={() => onProviderChange(id as Provider)}
               />
-              <span class="prov-title">{title}</span>
-              <span class="prov-desc">{desc}</span>
-              <span class="prov-badge">{badge}</span>
+              <span class="prov-title">{t(`ui.provider.${id}.title`)}</span>
+              <span class="prov-desc">{t(`ui.provider.${id}.desc`)}</span>
+              <span class="prov-badge">{t(`ui.provider.${id}.badge`)}</span>
             </label>
           {/each}
         </div>
 
         {#if settings.provider === 'google'}
           <p class="hint google-hint">
-            Google: до ~15 с за запись, без ключа; может перестать работать в любой момент.
-            {#if settings.language === ''}Язык «авто» — реально уйдёт en-US.{/if}
+            {t('ui.google.hint')}{#if settings.language === ''}{t('ui.google.auto_hint')}{/if}
           </p>
         {/if}
 
         <div class="field">
-          <label for="language">Язык</label>
+          <label for="language">{t('ui.language.label')}</label>
           <select id="language" bind:value={settings.language} title={providerHint}>
-            {#each LANGUAGES as [code, name]}
-              <option value={code}>{name}</option>
+            {#each LANGUAGE_CODES as code}
+              <option value={code}>{code === '' ? t('ui.lang.auto') : t(`ui.lang.${code}`)}</option>
             {/each}
           </select>
         </div>
 
         <details class="adv" bind:open={advOpen}>
-          <summary>Дополнительно</summary>
+          <summary>{t('ui.advanced')}</summary>
           <div class="field">
-            <label for="endpoint">Эндпоинт</label>
+            <label for="endpoint">{t('ui.endpoint.label')}</label>
             <input
               id="endpoint"
               type="text"
               bind:value={settings.endpoint}
               placeholder={settings.provider === 'google'
-                ? 'не требуется'
+                ? t('ui.endpoint.ph_none')
                 : settings.provider === 'qwen'
                   ? QWEN_DEFAULT_ENDPOINT
                   : 'https://api.openai.com/v1'}
             />
             {#if endpointError}
-              <span class="error">{endpointError}</span>
+              <span class="error">{t(endpointError)}</span>
             {/if}
           </div>
 
           <div class="field">
-            <label for="token">Токен</label>
+            <label for="token">{t('ui.token.label')}</label>
             <div class="token-row">
               <input
                 id="token"
                 type={showToken ? 'text' : 'password'}
                 bind:value={settings.token}
-                placeholder={settings.provider === 'google' ? 'не требуется (без ключа)' : 'sk-...'}
+                placeholder={settings.provider === 'google' ? t('ui.token.ph_none') : 'sk-...'}
               />
               <button
                 type="button"
                 class="eye"
-                aria-label={showToken ? 'Скрыть токен' : 'Показать токен'}
+                aria-label={showToken ? t('ui.token.hide') : t('ui.token.show')}
                 onclick={() => (showToken = !showToken)}
               >
                 👁
@@ -434,31 +435,32 @@
           <div class="field">
             <div class="row">
               <div class="field grow">
-                <label for="model">Модель</label>
+                <label for="model">{t('ui.model.label')}</label>
                 <input
                   id="model"
                   type="text"
                   bind:value={settings.model}
                   placeholder={settings.provider === 'google'
-                    ? 'не требуется'
+                    ? t('ui.endpoint.ph_none')
                     : settings.provider === 'qwen'
                       ? QWEN_DEFAULT_MODEL
                       : 'whisper-1'}
                 />
               </div>
               <button type="button" class="check" onclick={testConnection} disabled={checking}>
-                {checking ? 'Проверка…' : 'Проверить подключение'}
+                {checking ? t('ui.check.testing') : t('ui.check.button')}
               </button>
             </div>
             {#if checkResult}
+              {@const success = t('ui.check.success', { ms: formatInt(checkResult.latencyMs) })}
               <span
                 class="check-line {checkResult.ok ? 'check-ok' : 'check-err'}"
                 title={checkResult.ok
-                  ? `Успех: ${checkResult.latencyMs} мс${checkResult.text ? `, «${checkResult.text}»` : ''}`
+                  ? `${success}${checkResult.text ? `, «${checkResult.text}»` : ''}`
                   : checkResult.error ?? ''}
               >
                 {#if checkResult.ok}
-                  ✓ {checkResult.latencyMs} мс{#if checkResult.text}, {checkResult.text}{/if}
+                  ✓ {success}{#if checkResult.text}, {checkResult.text}{/if}
                 {:else}
                   ✗ {checkResult.error}
                 {/if}
@@ -470,39 +472,39 @@
     {:else if active === 'input'}
       <form class="stack" autocomplete="off" onsubmit={(e) => e.preventDefault()}>
         <div class="field">
-          <label for="mic">Микрофон</label>
+          <label for="mic">{t('ui.mic.label')}</label>
           <div class="row delay-row">
             <select
               id="mic"
               bind:value={settings.inputDevice}
               title={devices.map((d) => `${d.name} — ${d.formats.join(', ')}`).join('\n')}
             >
-              <option value="">Системный по умолчанию</option>
+              <option value="">{t('ui.mic.system_default')}</option>
               {#each devices as d (d.name)}
-                <option value={d.name}>{d.name}{d.isDefault ? ' (по умолчанию)' : ''}</option>
+                <option value={d.name}>{d.name}{d.isDefault ? t('ui.mic.default_suffix') : ''}</option>
               {/each}
             </select>
-            <button class="btn" type="button" onclick={loadDevices} title="Обновить список устройств">↻</button>
+            <button class="btn" type="button" onclick={loadDevices} title={t('ui.mic.refresh')}>↻</button>
           </div>
           {#if devicesError}
-            <span class="error">Список устройств недоступен: {devicesError}</span>
+            <span class="error">{t('ui.mic.list_error', { error: devicesError })}</span>
           {:else if settings.inputDevice && !devices.some((d) => d.name === settings.inputDevice)}
-            <span class="hint">⚠ Выбранное устройство сейчас не найдено — запись не начнётся, пока не вернётся устройство или не выбрано другое.</span>
+            <span class="hint">{t('ui.mic.device_missing')}</span>
           {/if}
         </div>
 
         <div class="field">
-          <span class="lbl">Хоткей (удерживайте для записи)</span>
+          <span class="lbl">{t('ui.hotkey.label')}</span>
           <HotkeyInput bind:value={settings.hotkey} />
           {#if hotkeyError}
-            <span class="error">{hotkeyError}</span>
+            <span class="error">{t(hotkeyError)}</span>
           {:else}
-            <span class="hint">Клик — задать, Backspace — сброс к {''}Cmd+Shift+Space, Esc — отмена.</span>
+            <span class="hint">{t('ui.hotkey.hint', { hotkey: OS_DEFAULT_HOTKEY })}</span>
           {/if}
         </div>
 
         <div class="field">
-          <label for="delay-range">Задержка перед вставкой</label>
+          <label for="delay-range">{t('ui.delay.label')}</label>
           <div class="row delay-row">
             <input
               id="delay-range"
@@ -522,7 +524,7 @@
               step="10"
               bind:value={settings.insertDelayMs}
             />
-            <span class="unit">мс</span>
+            <span class="unit">{t('ui.delay.unit')}</span>
           </div>
         </div>
       </form>
@@ -532,8 +534,8 @@
           <input type="checkbox" bind:checked={settings.autostart} />
           <span class="track"><span class="thumb"></span></span>
           <span class="switch-text">
-            <b>Запускать при входе в систему</b>
-            <span class="hint">VoiceDo будет доступен по хоткею сразу после загрузки macOS.</span>
+            <b>{t('ui.autostart.title')}</b>
+            <span class="hint">{t('ui.autostart.hint')}</span>
           </span>
         </label>
       </div>
@@ -543,47 +545,47 @@
           <input type="checkbox" bind:checked={settings.statsEnabled} />
           <span class="track"><span class="thumb"></span></span>
           <span class="switch-text">
-            <b>Вести статистику диктовок</b>
-            <span class="hint">Все данные хранятся только на этом устройстве.</span>
+            <b>{t('ui.stats.switch_title')}</b>
+            <span class="hint">{t('ui.stats.switch_hint')}</span>
           </span>
         </label>
 
         {#if !settings.statsEnabled}
-          <p class="hint">Статистика выключена — новые диктовки не учитываются.</p>
+          <p class="hint">{t('ui.stats.off')}</p>
         {:else if statsError}
-          <p class="error">Не удалось загрузить статистику: {statsError}</p>
+          <p class="error">{t('ui.stats.load_error', { error: statsError })}</p>
         {:else if stats}
           <div class="hero-card">
             <div class="hero-num">≈ {fmtMinutes(stats.minutesSavedToday)}</div>
-            <div class="hero-label">печати сэкономлено сегодня</div>
-            <div class="hero-sub">всего ≈ {fmtMinutes(stats.minutesSavedTotal)}</div>
+            <div class="hero-label">{t('ui.stats.saved_caption')}</div>
+            <div class="hero-sub">{t('ui.stats.saved_total', { time: fmtMinutes(stats.minutesSavedTotal) })}</div>
           </div>
 
           <div class="stat-grid">
             <div class="stat-card">
-              <span class="stat-num">{fmtInt(stats.today.words)}</span>
-              <span class="stat-lbl">слов сегодня</span>
+              <span class="stat-num">{formatInt(stats.today.words)}</span>
+              <span class="stat-lbl">{t('ui.stats.words_today')}</span>
             </div>
             <div class="stat-card">
-              <span class="stat-num">{fmtInt(stats.weekWords)}</span>
-              <span class="stat-lbl">за 7 дней</span>
+              <span class="stat-num">{formatInt(stats.weekWords)}</span>
+              <span class="stat-lbl">{t('ui.stats.week')}</span>
             </div>
             <div class="stat-card">
-              <span class="stat-num">{fmtInt(stats.lifetime.words)}</span>
-              <span class="stat-lbl">всего</span>
+              <span class="stat-num">{formatInt(stats.lifetime.words)}</span>
+              <span class="stat-lbl">{t('ui.stats.lifetime')}</span>
             </div>
             <div class="stat-card">
-              <span class="stat-num">{stats.streakDays} 🔥</span>
-              <span class="stat-lbl">дней подряд</span>
+              <span class="stat-num">{formatInt(stats.streakDays)} 🔥</span>
+              <span class="stat-lbl">{t('ui.stats.streak')}</span>
             </div>
           </div>
 
           <div class="chart-card">
             <div class="chart-head">
-              <span class="stat-lbl">Слова за 14 дней</span>
-              <span class="stat-lbl">рекорд: {fmtInt(stats.bestDayWords)}</span>
+              <span class="stat-lbl">{t('ui.stats.chart_title')}</span>
+              <span class="stat-lbl">{t('ui.stats.record', { n: formatInt(stats.bestDayWords) })}</span>
             </div>
-            <svg class="chart" viewBox="0 0 280 64" role="img" aria-label="Слова за последние 14 дней">
+            <svg class="chart" viewBox="0 0 280 64" role="img" aria-label={t('ui.stats.chart_aria')}>
               {#each stats.chart as p, i (p.date)}
                 {@const h = Math.max(2, (p.words / chartMax) * 56)}
                 <rect
@@ -594,18 +596,18 @@
                   rx="2"
                   class:today-bar={i === stats.chart.length - 1}
                 >
-                  <title>{p.date}: {fmtInt(p.words)} слов</title>
+                  <title>{t('ui.stats.bar_title', { date: p.date, words: `${formatInt(p.words)} ${tPlural('tray.words', p.words)}` })}</title>
                 </rect>
               {/each}
             </svg>
             <div class="chart-axis">
               <span>{stats.chart[0]?.date.slice(8)}</span>
-              <span>сегодня</span>
+              <span>{t('ui.stats.today')}</span>
             </div>
           </div>
 
           <div class="field">
-            <label for="wpm">Скорость вашей печати (для оценки экономии)</label>
+            <label for="wpm">{t('ui.stats.wpm_label')}</label>
             <div class="row delay-row">
               <input
                 id="wpm"
@@ -625,17 +627,19 @@
                 step="5"
                 bind:value={settings.typingSpeedWpm}
               />
-              <span class="unit">слов/мин</span>
+              <span class="unit">{t('ui.stats.wpm_unit')}</span>
             </div>
-            <span class="hint">Средняя скорость печати — около 40 слов/мин.</span>
+            <span class="hint">{t('ui.stats.wpm_hint')}</span>
           </div>
 
           <p class="hint">
-            Диктовок сегодня: {fmtInt(stats.today.sessions)} · надиктовано аудио:
-            {(Math.round(stats.today.audioSec / 6) / 10).toLocaleString('ru-RU')} мин
+            {t('ui.stats.today_line', {
+              sessions: formatInt(stats.today.sessions),
+              minutes: formatDecimal(Math.round(stats.today.audioSec / 6) / 10),
+            })}
           </p>
         {:else}
-          <p class="hint">Загрузка…</p>
+          <p class="hint">{t('ui.loading')}</p>
         {/if}
       </div>
     {:else}
@@ -763,6 +767,22 @@
   .theme-btn.active {
     background: var(--grad);
     color: #fff;
+  }
+
+  .locale-field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .locale-lbl {
+    font-size: 0.66rem;
+    color: var(--muted);
+  }
+
+  .locale-select {
+    font-size: 0.72rem;
+    padding: 3px 6px;
   }
 
   .panel {

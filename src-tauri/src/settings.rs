@@ -32,6 +32,14 @@ pub struct Settings {
     /// Локальный учёт статистики диктовок; данные не покидают устройство.
     #[serde(default = "default_stats_enabled")]
     pub stats_enabled: bool,
+    /// Язык интерфейса: "auto" | "en" | "ru" | "zh". auto — по системной локали
+    /// (см. `l10n::resolve`); старые store-файлы без ключа остаются на auto.
+    #[serde(default = "default_locale")]
+    pub locale: String,
+}
+
+fn default_locale() -> String {
+    "auto".to_string()
 }
 
 fn default_provider() -> String {
@@ -69,6 +77,7 @@ impl Default for Settings {
             input_device: String::new(),
             typing_speed_wpm: default_typing_speed_wpm(),
             stats_enabled: default_stats_enabled(),
+            locale: default_locale(),
         }
     }
 }
@@ -98,9 +107,29 @@ pub fn sync_autostart(app: &AppHandle, enabled: bool) -> Result<(), String> {
         }
         Err(e) => {
             log::error!("[autostart] не удалось применить (enabled={enabled}): {e}");
-            Err(format!("Не удалось изменить автостарт: {e}"))
+            Err(crate::l10n::t("notify.autostart_failed", &[("error", &e.to_string())]))
         }
     }
+}
+
+/// Применить настройку `locale`: пересчитать разрешённую локаль, обновить
+/// тексты трея и уведомить фронт событием `locale-changed`.
+pub fn apply_locale(app: &AppHandle, setting: &str) {
+    let resolved = crate::l10n::resolve(setting);
+    if crate::l10n::set_locale(&resolved) {
+        log::info!("[i18n] locale: setting={setting} -> {resolved}");
+        crate::tray::refresh_texts(app);
+    }
+    use tauri::Emitter;
+    if let Err(e) = app.emit("locale-changed", &resolved) {
+        log::error!("[i18n] emit locale-changed failed: {e}");
+    }
+}
+
+/// Разрешённая локаль интерфейса ("en" | "ru" | "zh") для фронта.
+#[tauri::command]
+pub fn get_locale() -> String {
+    crate::l10n::locale()
 }
 
 #[tauri::command]
@@ -118,6 +147,11 @@ pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<(), Str
     // Автостарт меняем только если значение реально изменилось.
     if prev.autostart != settings.autostart {
         sync_autostart(&app, settings.autostart)?;
+    }
+    // Локаль: источник истины — Rust (auto раскрывается по системной локали).
+    // Событие шлём при любой смене настройки, фронт подписан на `locale-changed`.
+    if prev.locale != settings.locale {
+        apply_locale(&app, &settings.locale);
     }
     Ok(())
 }
@@ -197,6 +231,41 @@ mod tests {
             serde_json::from_str(old).expect("store without stats fields should deserialize");
         assert_eq!(s.typing_speed_wpm, 40);
         assert!(s.stats_enabled, "статистика по умолчанию включена (локальные данные)");
+    }
+
+    #[test]
+    fn old_store_without_locale_defaults_to_auto() {
+        let old = r#"{
+            "provider": "openai",
+            "endpoint": "https://api.openai.com/v1",
+            "token": "t",
+            "model": "whisper-1",
+            "language": "ru",
+            "hotkey": "Cmd+Shift+Space",
+            "insertDelayMs": 50,
+            "autostart": false,
+            "theme": "system",
+            "inputDevice": "",
+            "typingSpeedWpm": 40,
+            "statsEnabled": true
+        }"#;
+        let s: Settings = serde_json::from_str(old).expect("store without locale should deserialize");
+        assert_eq!(s.locale, "auto");
+        assert_eq!(Settings::default().locale, "auto");
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(json["locale"], "auto");
+    }
+
+    #[test]
+    fn locale_roundtrips() {
+        let s = Settings {
+            locale: "ru".to_string(),
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(json["locale"], "ru");
+        let back: Settings = serde_json::from_value(json).unwrap();
+        assert_eq!(back.locale, "ru");
     }
 
     #[test]

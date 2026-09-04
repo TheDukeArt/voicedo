@@ -2,6 +2,7 @@ mod accessibility;
 mod asr;
 mod error_msg;
 mod hotkey;
+mod l10n;
 mod recorder;
 mod settings;
 mod stats;
@@ -51,6 +52,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             settings::get_settings,
             settings::save_settings,
+            settings::get_locale,
             recorder::list_input_devices,
             stats::get_stats,
             asr::test_connection,
@@ -59,6 +61,11 @@ pub fn run() {
         ])
         .setup(|app| {
             log::info!("[setup] VoiceDo starting");
+            // Локаль до построения трея: тексты меню/тултипа берутся из каталога.
+            let s = settings::load_settings(app.handle());
+            let resolved = l10n::resolve(&s.locale);
+            l10n::set_locale(&resolved);
+            log::info!("[i18n] locale setting={} -> {}", s.locale, resolved);
             tray::build_tray(app.handle())?;
             // 6.2: при отсутствии прав Accessibility macOS покажет системный промпт.
             if accessibility::ensure_prompt() {
@@ -66,7 +73,6 @@ pub fn run() {
             } else {
                 log::warn!("[accessibility] нет разрешения — показан системный промпт (Специальные возможности)");
             }
-            let s = settings::load_settings(app.handle());
             // Синхронно с сохранённой настройкой (false по умолчанию для старых store).
             let _ = settings::sync_autostart(app.handle(), s.autostart);
             // Битый hotkey в store не должен ломать запуск: фолбэк на ОС-дефолт.

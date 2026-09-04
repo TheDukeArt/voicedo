@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
+  import { t, formatDecimal } from '$lib/i18n/index.svelte';
 
   // --- 6.6: панель проверки диктовки (микрофон → ASR, без хоткея и вставки).
   // Hold/toggle-схема и seq-фильтр перенесены из +page.svelte без изменений.
@@ -89,11 +90,11 @@
       micStopTick();
       micPhase = 'idle';
       if (p.ok) {
-        micResult = p.text ?? '(пусто)';
+        micResult = p.text ?? t('ui.mitest.empty');
         micError = '';
       } else {
         micResult = '';
-        micError = p.error ?? 'Неизвестная ошибка';
+        micError = p.error ?? t('ui.mitest.unknown_error');
       }
     });
     return () => {
@@ -111,7 +112,7 @@
       class:processing={micPhase === 'processing'}
       disabled={micPhase === 'processing'}
       aria-pressed={micPhase === 'recording'}
-      aria-label="Запись проверки диктовки"
+      aria-label={t('ui.mitest.aria')}
       onpointerdown={onMicDown}
       onpointerup={onMicUp}
       onpointercancel={onMicUp}
@@ -127,11 +128,11 @@
       {/if}
     </button>
     {#if micPhase === 'recording'}
-      <span class="elapsed">{micElapsed.toFixed(1)} с</span>
+      <span class="elapsed">{formatDecimal(micElapsed)} {t('ui.mitest.seconds_unit')}</span>
     {:else if micPhase === 'processing'}
-      <span class="elapsed">Распознаю…</span>
+      <span class="elapsed">{t('ui.mitest.recognizing')}</span>
     {:else}
-      <span class="elapsed">Держите и говорите</span>
+      <span class="elapsed">{t('ui.mitest.hold')}</span>
     {/if}
   </div>
 
@@ -140,7 +141,7 @@
   {:else if micResult}
     <div class="bubble ok" title={micResult}>{micResult}</div>
   {/if}
-  <p class="hint">Клик — вкл/выкл, удержание — пока держите. Вставка не выполняется.</p>
+  <p class="hint">{t('ui.mitest.hint')}</p>
 </div>
 
 <style>
