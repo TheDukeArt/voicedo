@@ -1,6 +1,6 @@
 [package]
 name = "voicedo"
-version = "0.1.2"
+version = "0.2.0"
 description = "VoiceDo — push-to-talk dictation with your own ASR provider"
 authors = ["TheDukeArt"]
 license = "AGPL-3.0-or-later"
