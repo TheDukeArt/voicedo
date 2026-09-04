@@ -22,7 +22,6 @@ git remote remove origin
 git filter-repo --force --quiet \
   --name-callback "return b'$PUB_NAME'" \
   --email-callback "return b'$PUB_EMAIL'" \
-  --refname-callback 'return b"refs/heads/' + (b'main' if refs == b'refs/heads/master' else refs[11:])' \
   --invert-paths \
   --path .agents \
   --path opencode.json \
@@ -39,9 +38,10 @@ if [ "$BAD" != "0" ]; then
 fi
 echo "==> История обезличена ($(git rev-list --count HEAD) коммитов)"
 
-if git grep -qiE "aynutdinov|/Users/artem|MacBook-Pro" HEAD 2>/dev/null; then
+GREP_PATHS=(HEAD -- ':(exclude)scripts/publish-github.sh')
+if git grep -qiE "aynutdinov|/Users/artem|MacBook-Pro" "${GREP_PATHS[@]}"; then
   echo "ОШИБКА: в дереве остались личные пути/домены" >&2
-  git grep -iliE "aynutdinov|/Users/artem|MacBook-Pro" HEAD >&2
+  git grep -iliE "aynutdinov|/Users/artem|MacBook-Pro" "${GREP_PATHS[@]}" >&2
   exit 1
 fi
 
