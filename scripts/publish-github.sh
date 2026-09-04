@@ -25,6 +25,8 @@ git filter-repo --force --quiet \
   --invert-paths \
   --path .agents \
   --path opencode.json \
+  --path PLAN-0.2-PRELIMINARY.md \
+  --path TODO.md \
   --path results.md \
   --path review_Deepseekv4.md \
   --path review_GLM.md \
