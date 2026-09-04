@@ -20,6 +20,12 @@ OpenAI-совместимого ASR-провайдера (BYOK).
 - Автовставка текста через эмуляцию клавиатуры (юникод/кириллица), тема light/dark,
   автостарт, автозапуск с корректными разрешениями macOS (микрофон, Accessibility)
 
+## Скачать
+
+Готовые сборки — в [GitHub Releases](https://github.com/TheDukeArt/voicedo/releases/latest)
+и на [voicedo.app](https://voicedo.app/download/): Windows MSI и macOS universal DMG
+(+ `SHASUMS256.txt`). Сборки пока без подписи/нотаризации (план 0.2).
+
 ## Сборка и запуск
 
 Требования: Rust ≥ 1.80, Node ≥ 20, [`tauri-cli`](https://v2.tauri.app/start/prerequisites/).
