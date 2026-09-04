@@ -218,6 +218,18 @@
     "bad_response": "Malformed server response — {hint}",
     "invalid_endpoint": "Invalid endpoint address",
     "too_long": "the unofficial Google API supports recordings up to ~15 s — shorten your dictation",
-    "test_no_speech_ok": "(endpoint responds, no speech detected — this is normal for a silence test)"
+    "test_no_speech_ok": "(endpoint responds, no speech detected — this is normal for a silence test)",
+    "hint": {
+      "json_text_field": "expected JSON with a \"text\" field",
+      "json_output_text": "expected JSON with output.output.text fields",
+      "missing_text_field": "response has no \"text\" field",
+      "wav_header": "could not parse the WAV header",
+      "wav_fmt_chunk": "WAV has no \"fmt\" chunk",
+      "wav_pcm16_mono": "only 16-bit mono PCM is supported",
+      "wav_data_chunk": "WAV has no \"data\" chunk",
+      "google_html_captcha": "got HTML instead of JSON — probably a captcha or a Google block",
+      "ndjson_parse": "could not parse the NDJSON response",
+      "flac_empty": "FLAC encoder returned an empty result"
+    }
   }
 }

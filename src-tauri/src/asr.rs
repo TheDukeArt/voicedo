@@ -61,7 +61,7 @@ pub enum AsrError {
     NoSpeech,
     Network,
     Timeout,
-    /// Подсказка: что именно не так с ответом
+    /// Подсказка: что именно не так с ответом — ключ каталога `err.hint.*`
     BadResponse(&'static str),
     InvalidEndpoint,
     /// Запись длиннее лимита неофициального Google API (~15 с)
@@ -120,9 +120,10 @@ impl fmt::Display for AsrError {
             AsrError::NoSpeech => l10n::t("err.no_speech_test", &[]),
             AsrError::Network => l10n::t("err.network", &[]),
             AsrError::Timeout => l10n::t("err.timeout", &[]),
-            AsrError::BadResponse(hint) => {
-                // hint — внутренняя техническая подсказка (может быть непереведена)
-                return write!(f, "{}", l10n::t("err.bad_response", &[("hint", hint)]));
+            AsrError::BadResponse(hint_key) => {
+                // hint_key — ключ каталога err.hint.* (как hint у Unauthorized)
+                let hint = l10n::t(hint_key, &[]);
+                return write!(f, "{}", l10n::t("err.bad_response", &[("hint", &hint)]));
             }
             AsrError::InvalidEndpoint => l10n::t("err.invalid_endpoint", &[]),
             AsrError::TooLong => l10n::t("err.too_long", &[]),
@@ -219,11 +220,11 @@ pub async fn transcribe_wav(
     let body: serde_json::Value = response
         .json()
         .await
-        .map_err(|_| AsrError::BadResponse("ожидался JSON с полем \"text\""))?;
+        .map_err(|_| AsrError::BadResponse("err.hint.json_text_field"))?;
     body.get("text")
         .and_then(|t| t.as_str())
         .map(|s| s.to_string())
-        .ok_or(AsrError::BadResponse("ожидался JSON с полем \"text\""))
+        .ok_or(AsrError::BadResponse("err.hint.json_text_field"))
 }
 
 /// Отправка WAV на DashScope-native эндпоинт multimodal-generation.
@@ -291,7 +292,7 @@ pub async fn transcribe_wav_qwen(
     let body: serde_json::Value = response
         .json()
         .await
-        .map_err(|_| AsrError::BadResponse("ожидался JSON с полями output.output.text"))?;
+        .map_err(|_| AsrError::BadResponse("err.hint.json_output_text"))?;
     if no_speech_in_json(&body) {
         return Err(AsrError::NoSpeech);
     }
@@ -309,7 +310,7 @@ pub async fn transcribe_wav_qwen(
                 .and_then(|t| t.as_str())
         })
         .map(|s| s.to_string())
-        .ok_or(AsrError::BadResponse("в ответе нет поля text"))
+        .ok_or(AsrError::BadResponse("err.hint.missing_text_field"))
 }
 
 /// Разбор нашего WAV (RIFF/WAVE, PCM 16-bit) в моно-сэмплы и частоту.
@@ -318,7 +319,7 @@ pub async fn transcribe_wav_qwen(
 fn parse_wav_pcm16(wav: &[u8]) -> Result<(Vec<i16>, u32), AsrError> {
     let bad = |hint: &'static str| AsrError::BadResponse(hint);
     if wav.len() < 12 || &wav[0..4] != b"RIFF" || &wav[8..12] != b"WAVE" {
-        return Err(bad("не удалось разобрать WAV-заголовок"));
+        return Err(bad("err.hint.wav_header"));
     }
     let mut pos = 12usize;
     let mut rate: Option<u32> = None;
@@ -345,12 +346,12 @@ fn parse_wav_pcm16(wav: &[u8]) -> Result<(Vec<i16>, u32), AsrError> {
         pos = pos + 8 + size + (size % 2);
     }
     let (Some(rate), Some(channels), Some(bits)) = (rate, channels, bits) else {
-        return Err(bad("в WAV нет чанка fmt"));
+        return Err(bad("err.hint.wav_fmt_chunk"));
     };
     if channels != 1 || bits != 16 {
-        return Err(bad("поддерживается только 16-битный моно PCM"));
+        return Err(bad("err.hint.wav_pcm16_mono"));
     }
-    let (start, end) = data.ok_or_else(|| bad("в WAV нет чанка data"))?;
+    let (start, end) = data.ok_or_else(|| bad("err.hint.wav_data_chunk"))?;
     let samples = wav[start..end]
         .chunks_exact(2)
         .map(|b| i16::from_le_bytes([b[0], b[1]]))
@@ -412,9 +413,7 @@ fn google_lang(language: &str) -> String {
 /// через пробел. Тишина (одни `{"result":[]}`) — пустая строка, не ошибка.
 fn parse_google_ndjson(body: &str) -> Result<String, AsrError> {
     if body.trim_start().starts_with('<') {
-        return Err(AsrError::BadResponse(
-            "получен HTML вместо JSON — вероятно, captcha или блокировка Google",
-        ));
+        return Err(AsrError::BadResponse("err.hint.google_html_captcha"));
     }
     let mut parts: Vec<String> = Vec::new();
     for line in body.lines() {
@@ -424,7 +423,7 @@ fn parse_google_ndjson(body: &str) -> Result<String, AsrError> {
             continue;
         }
         let value: serde_json::Value = serde_json::from_str(line)
-            .map_err(|_| AsrError::BadResponse("не удалось разобрать NDJSON-ответ"))?;
+            .map_err(|_| AsrError::BadResponse("err.hint.ndjson_parse"))?;
         let Some(results) = value.get("result").and_then(|r| r.as_array()) else {
             continue;
         };
@@ -456,7 +455,7 @@ pub async fn transcribe_wav_google(language: &str, wav: &[u8]) -> Result<String,
     }
     let flac = encode_pcm_to_flac(&samples, rate);
     if flac.is_empty() {
-        return Err(AsrError::BadResponse("FLAC-энкодер вернул пустой результат"));
+        return Err(AsrError::BadResponse("err.hint.flac_empty"));
     }
     let url = reqwest::Url::parse_with_params(
         GOOGLE_SPEECH_API_URL,
@@ -935,7 +934,14 @@ mod tests {
         let err = parse_google_ndjson("<html><body>Captcha</body></html>")
             .expect_err("html should fail");
         match err {
-            AsrError::BadResponse(hint) => assert!(hint.contains("captcha"), "{hint}"),
+            AsrError::BadResponse(hint_key) => {
+                assert_eq!(hint_key, "err.hint.google_html_captcha", "{hint_key}");
+                // сообщение в активной локали упоминает captcha (EN-значение ключа)
+                assert!(
+                    err.to_string().to_lowercase().contains("captcha"),
+                    "{err}"
+                );
+            }
             other => panic!("expected BadResponse, got {other:?}"),
         }
     }

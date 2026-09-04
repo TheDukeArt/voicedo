@@ -23,24 +23,21 @@ pub enum RecorderError {
 
 impl fmt::Display for RecorderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use crate::l10n;
+        // Те же ключи каталога, что у error_msg::microphone (notify.mic.*):
+        // Display — запасной вариант (логи/строка ошибки команды), пользователю
+        // идёт локализованное сообщение через error_msg.
         let msg = match self {
-            RecorderError::NoInputDevice => {
-                "Микрофон не найден — проверьте, что входное устройство подключено и разрешено (macOS: Настройки → Конфиденциальность → Микрофон)"
-            }
+            RecorderError::NoInputDevice => l10n::t("notify.mic.no_device", &[]),
             RecorderError::PreferredDeviceGone(name) => {
-                return write!(
-                    f,
-                    "Выбранный микрофон «{name}» не найден — выберите другое устройство в настройках VoiceDo"
-                )
+                l10n::t("notify.mic.device_gone", &[("name", name)])
             }
-            RecorderError::Build(e) => {
-                return write!(f, "Не удалось открыть поток записи: {e}")
-            }
+            RecorderError::Build(e) => l10n::t("notify.mic.stream", &[("error", e)]),
             RecorderError::UnsupportedFormat(fmt) => {
-                return write!(f, "Неподдерживаемый формат сэмплов устройства: {fmt}")
+                l10n::t("notify.mic.sample_format", &[("format", fmt)])
             }
         };
-        f.write_str(msg)
+        f.write_str(&msg)
     }
 }
 
@@ -225,7 +222,11 @@ fn pick_input_config(preferred: &str) -> Result<(cpal::Device, SupportedStreamCo
         }
     }
     if saw_device {
-        return Err(RecorderError::UnsupportedFormat("ни одно устройство не даёт PCM/float-вход".into()));
+        // Технический дескриптор идёт в плейсхолдер {format} локализованного
+        // notify.mic.unsupported_format — как и сырые cpal-значения, не переводится.
+        return Err(RecorderError::UnsupportedFormat(
+            "no PCM/float-capable input device".into(),
+        ));
     }
     Err(RecorderError::NoInputDevice)
 }

@@ -1,9 +1,12 @@
-// Локаль интерфейса: общий каталог с Rust (`en.json`/`ru.json`, одно на всех).
+// Локаль интерфейса: общий каталог с Rust (`en.json`/`ru.json`/`zh.json`, одно на всех).
 // Источник истины разрешённой локали — Rust (`get_locale`/`locale-changed`);
 // здесь только хранение, подстановка `{name}` и плюрализация через Intl.
+// zh — скелет из пустых строк: пустое значение или отсутствующий ключ дают
+// EN-фолбэк, промах в EN — сам ключ (pure-data добавление перевода позже).
 
 import en from './en.json';
 import ru from './ru.json';
+import zh from './zh.json';
 
 export type ResolvedLocale = 'en' | 'ru' | 'zh';
 
@@ -12,8 +15,7 @@ type Catalog = Record<string, unknown>;
 const catalogs: Record<ResolvedLocale, Catalog> = {
   en: en as Catalog,
   ru: ru as Catalog,
-  // zh-каталога пока нет — t() даёт EN-фолбэк (ожидание этапа 11)
-  zh: en as Catalog,
+  zh: zh as Catalog,
 };
 
 export const i18n = $state({ locale: 'en' as ResolvedLocale });
@@ -26,7 +28,8 @@ function lookup(catalog: Catalog, key: string): string | undefined {
     if (typeof cur !== 'object' || cur === null) return undefined;
     cur = (cur as Record<string, unknown>)[part];
   }
-  return typeof cur === 'string' ? cur : undefined;
+  // Пустая строка (непереведённый скелет zh) считается отсутствием значения → EN-фолбэк.
+  return typeof cur === 'string' && cur !== '' ? cur : undefined;
 }
 
 function format(template: string, params?: Record<string, string | number>): string {
@@ -44,9 +47,16 @@ export function t(key: string, params?: Record<string, string | number>): string
 const pluralRules = $derived(new Intl.PluralRules(i18n.locale));
 
 // Формы из объекта `{key}.one/.few/.many/.other` (RU 1/2-4/5+, EN one/other, ZH other).
+// Пустые формы zh-скелета дают EN-фолбэк, как и t().
 export function tPlural(key: string, n: number): string {
   const cat = pluralRules.select(n);
-  return lookup(active, `${key}.${cat}`) ?? lookup(active, `${key}.other`) ?? key;
+  return (
+    lookup(active, `${key}.${cat}`) ??
+    lookup(active, `${key}.other`) ??
+    lookup(catalogs.en, `${key}.${cat}`) ??
+    lookup(catalogs.en, `${key}.other`) ??
+    key
+  );
 }
 
 const numberFormat = $derived(new Intl.NumberFormat(i18n.locale));

@@ -1,0 +1,235 @@
+{
+  "ui": {
+    "section": {
+      "connect": "",
+      "input": "",
+      "autostart": "",
+      "check": "",
+      "stats": ""
+    },
+    "saved": "",
+    "theme": {
+      "aria": "",
+      "system": "",
+      "light": "",
+      "dark": ""
+    },
+    "locale": {
+      "label": "",
+      "auto": ""
+    },
+    "lang": {
+      "auto": "",
+      "ru": "",
+      "en": "",
+      "es": "",
+      "fr": "",
+      "de": "",
+      "it": "",
+      "pt": "",
+      "pl": "",
+      "tr": "",
+      "uk": "",
+      "zh": "",
+      "ja": ""
+    },
+    "error": {
+      "load_settings": "",
+      "save_settings": ""
+    },
+    "provider": {
+      "openai": {
+        "title": "",
+        "desc": "",
+        "badge": ""
+      },
+      "qwen": {
+        "title": "",
+        "desc": "",
+        "badge": ""
+      },
+      "google": {
+        "title": "",
+        "desc": "",
+        "badge": ""
+      },
+      "hint_qwen": "",
+      "hint_google_auto": ""
+    },
+    "google": {
+      "hint": "",
+      "auto_hint": ""
+    },
+    "language": {
+      "label": ""
+    },
+    "advanced": "",
+    "endpoint": {
+      "label": "",
+      "ph_none": ""
+    },
+    "token": {
+      "label": "",
+      "ph_none": "",
+      "show": "",
+      "hide": ""
+    },
+    "model": {
+      "label": ""
+    },
+    "check": {
+      "button": "",
+      "testing": "",
+      "success": ""
+    },
+    "validation": {
+      "endpoint_url": "",
+      "endpoint_protocol": "",
+      "hotkey_empty": "",
+      "hotkey_plus": "",
+      "hotkey_mods": "",
+      "hotkey_key": "",
+      "hotkey_one_key": "",
+      "hotkey_order": ""
+    },
+    "mic": {
+      "label": "",
+      "system_default": "",
+      "default_suffix": "",
+      "refresh": "",
+      "list_error": "",
+      "device_missing": ""
+    },
+    "hotkey": {
+      "label": "",
+      "aria": "",
+      "hint": "",
+      "prompt": "",
+      "set_prompt": ""
+    },
+    "delay": {
+      "label": "",
+      "unit": ""
+    },
+    "autostart": {
+      "title": "",
+      "hint": ""
+    },
+    "stats": {
+      "switch_title": "",
+      "switch_hint": "",
+      "off": "",
+      "load_error": "",
+      "saved_caption": "",
+      "saved_total": "",
+      "words_today": "",
+      "week": "",
+      "lifetime": "",
+      "streak": "",
+      "chart_title": "",
+      "chart_aria": "",
+      "record": "",
+      "today": "",
+      "bar_title": "",
+      "wpm_label": "",
+      "wpm_unit": "",
+      "wpm_hint": "",
+      "today_line": ""
+    },
+    "time": {
+      "hour": "",
+      "min": ""
+    },
+    "loading": "",
+    "mitest": {
+      "aria": "",
+      "recognizing": "",
+      "hold": "",
+      "seconds_unit": "",
+      "empty": "",
+      "unknown_error": "",
+      "hint": ""
+    }
+  },
+  "tray": {
+    "state": {
+      "recording": "",
+      "processing": ""
+    },
+    "menu": {
+      "show": "",
+      "quit": "",
+      "debug_clear": ""
+    },
+    "stats_tooltip": "",
+    "today": "",
+    "words": {
+      "one": "",
+      "few": "",
+      "many": "",
+      "other": ""
+    }
+  },
+  "notify": {
+    "mic": {
+      "no_device": "",
+      "device_gone": "",
+      "stream": "",
+      "sample_format": "",
+      "unsupported_format": "",
+      "denied": "",
+      "busy": "",
+      "unavailable": "",
+      "start_failed": ""
+    },
+    "hotkey": {
+      "parse": "",
+      "startup_invalid": "",
+      "startup_none": "",
+      "register_failed": ""
+    },
+    "settings_incomplete": "",
+    "asr": {
+      "no_speech": "",
+      "failed": ""
+    },
+    "typer": {
+      "insert_failed": "",
+      "access_denied": "",
+      "input_denied": "",
+      "text_failed": ""
+    },
+    "autostart_failed": "",
+    "test": {
+      "hotkey_busy": "",
+      "not_running": "",
+      "record_failed": ""
+    }
+  },
+  "err": {
+    "unauthorized": "",
+    "auth_token": "",
+    "auth_google": "",
+    "not_found": "",
+    "server": "",
+    "no_speech_test": "",
+    "network": "",
+    "timeout": "",
+    "bad_response": "",
+    "invalid_endpoint": "",
+    "too_long": "",
+    "test_no_speech_ok": "",
+    "hint": {
+      "json_text_field": "",
+      "json_output_text": "",
+      "missing_text_field": "",
+      "wav_header": "",
+      "wav_fmt_chunk": "",
+      "wav_pcm16_mono": "",
+      "wav_data_chunk": "",
+      "google_html_captcha": "",
+      "ndjson_parse": "",
+      "flac_empty": ""
+    }
+  }
+}
