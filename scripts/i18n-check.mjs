@@ -397,7 +397,7 @@ for (const rel of files) {
 if (violations.length) {
   console.error(`i18n-check: нарушений: ${violations.length}`);
   for (const v of violations) console.error(`  ${v}`);
-  console.error('Пользовательские строки — только в src/lib/i18n/*.json (TODO.md, этап 11).');
+  console.error('Пользовательские строки — только в src/lib/i18n/*.json (см. PLAN.md «Локализация»).');
   process.exit(1);
 }
 console.log(`i18n-check: OK, файлов проверено: ${files.length}, нарушений нет.`);
